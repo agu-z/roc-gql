@@ -1,34 +1,88 @@
 interface Gql.Parser
     exposes []
     imports [
-        ParserCore.{ Parser, map2, const, keep, skip, many, oneOrMore, sepBy1 },
-        ParserStr.{ RawStr, string, parseStr, strFromRaw, codeunitSatisfies },
+        ParserCore.{ Parser, map, map2, const, keep, skip, many, oneOrMore, sepBy1, maybe },
+        ParserStr.{ RawStr, parseStr, strFromRaw, codeunit, codeunitSatisfies },
     ]
+
+# Selection
+
+Selection : [
+    Field Field,
+    # TODO: Fragments
+]
+
+selection : Parser RawStr Selection
+selection =
+    field |> map Field
 
 selectionSet : Parser RawStr (List Selection)
 selectionSet =
-    const \set -> set
-    |> skip (string "{")
+    const identity
+    |> skip (codeunit '{')
     |> skip ignored
     |> keep (sepBy1 selection ignored)
     |> skip ignored
-    |> skip (string "}")
+    |> skip (codeunit '}')
 
 expect parseStr selectionSet "{}" |> Result.isErr
-expect parseStr selectionSet "{name}" == Ok ["name"]
-expect parseStr selectionSet "{ name }" == Ok ["name"]
-expect parseStr selectionSet "{ name email }" == Ok ["name", "email"]
-expect parseStr selectionSet "{ name\nemail }" == Ok ["name", "email"]
-expect parseStr selectionSet "{ name, email }" == Ok ["name", "email"]
-expect parseStr selectionSet "{\n\tname, email \n\t  phone\n}" == Ok ["name", "email", "phone"]
+expect parseStr selectionSet "{name}" == Ok [sf "name"]
+expect parseStr selectionSet "{ name }" == Ok [sf "name"]
+expect parseStr selectionSet "{ name email }" == Ok [sf "name", sf "email"]
+expect parseStr selectionSet "{ name\nemail }" == Ok [sf "name", sf "email"]
+expect parseStr selectionSet "{ name, email }" == Ok [sf "name", sf "email"]
+expect
+    parseStr
+        selectionSet
+        """
+        {
+            fullName: name, 
+              email
+            phone
+        }
+        """
+    == Ok [
+        Field { field: "name", alias: Ok "fullName" },
+        sf "email",
+        sf "phone",
+    ]
 expect parseStr selectionSet "" |> Result.isErr
 expect parseStr selectionSet "{name" |> Result.isErr
 expect parseStr selectionSet "name}" |> Result.isErr
 
-Selection : Str
+sf = \fname -> Field { field: fname, alias: Err Nothing }
 
-selection : Parser RawStr Selection
-selection = name
+# Field
+
+Field : {
+    field : Str,
+    alias : Result Str [Nothing],
+}
+
+field : Parser RawStr Field
+field =
+    left, right <- map2 name (maybe colonAndFieldName)
+
+    when right is
+        Ok f ->
+            { field: f, alias: Ok left }
+
+        Err Nothing ->
+            { field: left, alias: Err Nothing }
+
+colonAndFieldName =
+    const identity
+    |> skip ignored
+    |> skip (codeunit ':')
+    |> skip ignored
+    |> keep name
+
+expect parseStr field "name" == Ok { field: "name", alias: Err Nothing }
+expect parseStr field "fullName:name" == Ok { field: "name", alias: Ok "fullName" }
+expect parseStr field "fullName: name" == Ok { field: "name", alias: Ok "fullName" }
+expect parseStr field "fullName : name" == Ok { field: "name", alias: Ok "fullName" }
+
+# Name
 
 name : Parser RawStr Str
 name =
@@ -69,6 +123,8 @@ isNumeric = \code ->
 isAlphanumeric = \code ->
     isAlpha code || isNumeric code
 
+# Helpers
+
 ignored =
     # TODO: Comments
     many ignoredCodeunit
@@ -82,3 +138,4 @@ ignoredCodeunit =
         || (c == '\r')
         || (c == ',')
 
+identity = \x -> x
