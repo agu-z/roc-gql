@@ -1,20 +1,27 @@
 interface Gql.Parser
-    exposes []
+    exposes [selection]
     imports [
-        ParserCore.{ Parser, map, map2, const, keep, skip, many, oneOrMore, sepBy1, maybe },
+        ParserCore.{ Parser, map2, const, keep, skip, many, oneOrMore, sepBy1, maybe },
         ParserStr.{ RawStr, parseStr, strFromRaw, codeunit, codeunitSatisfies },
     ]
 
 # Selection
 
 Selection : [
-    Field Field,
+    Field
+        {
+            field : Str,
+            alias : Result Str [Nothing],
+            # TODO: Arguments
+            # TODO: Directives
+            selectionSet : List Selection,
+        },
     # TODO: Fragments
 ]
 
 selection : Parser RawStr Selection
 selection =
-    field |> map Field
+    field
 
 selectionSet : Parser RawStr (List Selection)
 selectionSet =
@@ -42,7 +49,11 @@ expect
         }
         """
     == Ok [
-        Field { field: "name", alias: Ok "fullName" },
+        Field {
+            field: "name",
+            alias: Ok "fullName",
+            selectionSet: [],
+        },
         sf "email",
         sf "phone",
     ]
@@ -50,37 +61,46 @@ expect parseStr selectionSet "" |> Result.isErr
 expect parseStr selectionSet "{name" |> Result.isErr
 expect parseStr selectionSet "name}" |> Result.isErr
 
-sf = \fname -> Field { field: fname, alias: Err Nothing }
+sf = \fname -> Field { field: fname, alias: Err Nothing, selectionSet: [] }
 
 # Field
 
-Field : {
-    field : Str,
-    alias : Result Str [Nothing],
-}
-
-field : Parser RawStr Field
+field : Parser RawStr Selection
 field =
-    left, right <- map2 name (maybe colonAndFieldName)
+    const \left -> \right -> \ss -> mkField left right ss
+    |> keep name
+    |> skip ignored
+    |> keep (maybe colonAndFieldName)
+    |> skip ignored
+    # TODO: Compiler bug prevents us from creating recursive parsers
+    |> keep (const [])
 
+mkField = \left, right, ss ->
     when right is
         Ok f ->
-            { field: f, alias: Ok left }
+            Field {
+                field: f,
+                alias: Ok left,
+                selectionSet: ss,
+            }
 
         Err Nothing ->
-            { field: left, alias: Err Nothing }
+            Field {
+                field: left,
+                alias: Err Nothing,
+                selectionSet: ss,
+            }
 
 colonAndFieldName =
     const identity
-    |> skip ignored
     |> skip (codeunit ':')
     |> skip ignored
     |> keep name
 
-expect parseStr field "name" == Ok { field: "name", alias: Err Nothing }
-expect parseStr field "fullName:name" == Ok { field: "name", alias: Ok "fullName" }
-expect parseStr field "fullName: name" == Ok { field: "name", alias: Ok "fullName" }
-expect parseStr field "fullName : name" == Ok { field: "name", alias: Ok "fullName" }
+expect parseStr field "name" == Ok (Field { field: "name", alias: Err Nothing, selectionSet: [] })
+expect parseStr field "fullName:name" == Ok (Field { field: "name", alias: Ok "fullName", selectionSet: [] })
+expect parseStr field "fullName: name" == Ok (Field { field: "name", alias: Ok "fullName", selectionSet: [] })
+expect parseStr field "fullName : name" == Ok (Field { field: "name", alias: Ok "fullName", selectionSet: [] })
 
 # Name
 
