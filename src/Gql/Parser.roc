@@ -1,7 +1,7 @@
 interface Gql.Parser
     exposes [selection]
     imports [
-        ParserCore.{ Parser, map2, const, keep, skip, many, oneOrMore, sepBy1, maybe },
+        ParserCore.{ Parser, map, map2, const, keep, skip, many, oneOrMore, sepBy1, maybe, lazy },
         ParserStr.{ RawStr, parseStr, strFromRaw, codeunit, codeunitSatisfies },
     ]
 
@@ -72,8 +72,11 @@ field =
     |> skip ignored
     |> keep (maybe colonAndFieldName)
     |> skip ignored
-    # TODO: Compiler bug prevents us from creating recursive parsers
-    |> keep (const [])
+    |> keep
+        (
+            maybe (lazy \{} -> selectionSet)
+            |> map (\m -> Result.withDefault m [])
+        )
 
 mkField = \left, right, ss ->
     when right is
