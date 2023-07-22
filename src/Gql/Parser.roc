@@ -65,7 +65,6 @@ sf = \fname -> Field { field: fname, alias: Err Nothing, selectionSet: [] }
 
 # Field
 
-
 field : Parser RawStr Selection
 field =
     const \left -> \right -> \ss -> mkField left right ss
@@ -110,7 +109,28 @@ expect parseStr field "name" == Ok (Field { field: "name", alias: Err Nothing, s
 expect parseStr field "fullName:name" == Ok (Field { field: "name", alias: Ok "fullName", selectionSet: [] })
 expect parseStr field "fullName: name" == Ok (Field { field: "name", alias: Ok "fullName", selectionSet: [] })
 expect parseStr field "fullName : name" == Ok (Field { field: "name", alias: Ok "fullName", selectionSet: [] })
-expect parseStr field "user { name, age }" == Ok (Field { field: "user", alias: Err Nothing, selectionSet: [ sf "name", sf "age" ] })
+expect parseStr field "user { name, age }" == Ok (Field { field: "user", alias: Err Nothing, selectionSet: [sf "name", sf "age"] })
+expect
+    parseStr field "viewer: user { id posts { id title } name }"
+    == Ok
+        (
+            Field {
+                field: "user",
+                alias: Ok "viewer",
+                selectionSet: [
+                    sf "id",
+                    Field {
+                        field: "posts",
+                        alias: Err Nothing,
+                        selectionSet: [
+                            sf "id",
+                            sf "title",
+                        ],
+                    },
+                    sf "name"
+                ],
+            }
+        )
 
 # Name
 
