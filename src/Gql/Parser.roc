@@ -1,7 +1,7 @@
 interface Gql.Parser
     exposes [selection]
     imports [
-        ParserCore.{ Parser, map, map2, const, keep, skip, many, oneOrMore, sepBy1, maybe, lazy },
+        ParserCore.{ Parser, map, map2, const, keep, skip, many, oneOrMore, sepBy1, maybe },
         ParserStr.{ RawStr, parseStr, strFromRaw, codeunit, codeunitSatisfies },
     ]
 
@@ -65,6 +65,7 @@ sf = \fname -> Field { field: fname, alias: Err Nothing, selectionSet: [] }
 
 # Field
 
+
 field : Parser RawStr Selection
 field =
     const \left -> \right -> \ss -> mkField left right ss
@@ -74,9 +75,14 @@ field =
     |> skip ignored
     |> keep
         (
-            maybe (lazy \{} -> selectionSet)
+            maybe definitelyNotSelectionSet
             |> map (\m -> Result.withDefault m [])
         )
+
+# Workaround for: https://github.com/roc-lang/roc/issues/5682
+definitelyNotSelectionSet : Parser RawStr (List Selection)
+definitelyNotSelectionSet =
+    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial selectionSet input)
 
 mkField = \left, right, ss ->
     when right is
@@ -104,6 +110,7 @@ expect parseStr field "name" == Ok (Field { field: "name", alias: Err Nothing, s
 expect parseStr field "fullName:name" == Ok (Field { field: "name", alias: Ok "fullName", selectionSet: [] })
 expect parseStr field "fullName: name" == Ok (Field { field: "name", alias: Ok "fullName", selectionSet: [] })
 expect parseStr field "fullName : name" == Ok (Field { field: "name", alias: Ok "fullName", selectionSet: [] })
+expect parseStr field "user { name, age }" == Ok (Field { field: "user", alias: Err Nothing, selectionSet: [ sf "name", sf "age" ] })
 
 # Name
 
