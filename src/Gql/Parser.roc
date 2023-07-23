@@ -34,7 +34,8 @@ Document : List Definition
 
 document : Parser RawStr Document
 document =
-    sepBy1 definition ignored
+    definition
+    |> sepBy1 ignored
 
 expect
     parseStr
@@ -250,7 +251,7 @@ selectionSet =
     const identity
     |> skip (codeunit '{')
     |> skip ignored
-    |> keep (sepBy1 selection ignored)
+    |> keep (selection |> sepBy1 ignored)
     |> skip ignored
     |> skip (codeunit '}')
 
@@ -345,9 +346,9 @@ Value : [
     NullValue,
     EnumValue Str,
     ListValue (List Value),
+    ObjectValue (List (Str, Value)),
     # TODO:
     # FloatValue
-    # ObjectValue
 ]
 
 value : Parser RawStr Value
@@ -360,6 +361,7 @@ value =
         nullValue,
         enumValue,
         listValue,
+        objectValue,
     ]
 
 expect parseStr value "$id" == Ok (Variable "id")
@@ -374,9 +376,26 @@ expect parseStr value "null" == Ok NullValue
 expect parseStr value "ACTIVE" == Ok (EnumValue "ACTIVE")
 expect parseStr value "suspended" == Ok (EnumValue "suspended")
 expect parseStr value "[]" == Ok (ListValue [])
-expect parseStr value "[$id1, $id2]" == Ok (ListValue [Variable "id1", Variable "id2"])
+expect parseStr value "[ $id1, $id2 ]" == Ok (ListValue [Variable "id1", Variable "id2"])
 expect parseStr value "[42, 123, 234]" == Ok (ListValue [IntValue 42, IntValue 123, IntValue 234])
 expect parseStr value "[\"john\", \"Mike\"]" == Ok (ListValue [StringValue "john", StringValue "Mike"])
+expect parseStr value "{}" == Ok (ObjectValue [])
+expect
+    parseStr value "{ id: $id name: \"John\", age :56, status: ACTIVE }"
+    == Ok
+        (
+            ObjectValue [
+                ("id", Variable "id"),
+                ("name", StringValue "John"),
+                ("age", IntValue 56),
+                ("status", EnumValue "ACTIVE"),
+            ]
+        )
+
+# Workaround for: https://github.com/roc-lang/roc/issues/5682
+definitelyNotValue : Parser RawStr Value
+definitelyNotValue =
+    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial value input)
 
 # Value: Variable
 
@@ -465,15 +484,32 @@ enumValue =
 
 listValue : Parser RawStr Value
 listValue =
-    definitelyNotValue
-    |> sepBy ignored
-    |> between (codeunit '[') (codeunit ']')
-    |> map ListValue
+    const ListValue
+    |> skip (codeunit '[')
+    |> skip ignored
+    |> keep (definitelyNotValue |> sepBy ignored)
+    |> skip ignored
+    |> skip (codeunit ']')
 
-# Workaround for: https://github.com/roc-lang/roc/issues/5682
-definitelyNotValue : Parser RawStr Value
-definitelyNotValue =
-    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial value input)
+# Value: Object
+
+objectValue : Parser RawStr Value
+objectValue =
+    const ObjectValue
+    |> skip (codeunit '{')
+    |> skip ignored
+    |> keep (objectField |> sepBy ignored)
+    |> skip ignored
+    |> skip (codeunit '}')
+
+objectField : Parser RawStr (Str, Value)
+objectField =
+    const \k -> \v -> (k, v)
+    |> keep name
+    |> skip ignored
+    |> skip (codeunit ':')
+    |> skip ignored
+    |> keep definitelyNotValue
 
 # Name
 
