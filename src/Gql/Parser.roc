@@ -193,7 +193,8 @@ fragmentDefinition =
 
 expect
     parsed = parseStr fragmentDefinition "fragment UserDetails on User { id name posts { id, title } }"
-    parsed == Ok
+    parsed
+    == Ok
         (
             Fragment {
                 name: "UserDetails",
@@ -331,6 +332,35 @@ expect
                 tf "name",
             ]
         )
+
+# Value
+
+Value : [
+    Variable Str,
+    # TODO:
+    # IntValue
+    # FloatValue
+    # StringValue
+    # BooleanValue
+    # NullValue
+    # EnumValue
+    # ListValueConst
+    # ObjectValue
+]
+
+value : Parser RawStr Value
+value =
+    oneOf [
+        variable,
+    ]
+
+expect parseStr value "$id" == Ok (Variable "id")
+
+variable : Parser RawStr Value
+variable =
+    const Variable
+    |> skip (codeunit '$')
+    |> keep name
 
 # Name
 
