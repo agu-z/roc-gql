@@ -1,9 +1,67 @@
 interface Gql.Parser
     exposes [selection]
     imports [
-        ParserCore.{ Parser, map, map2, const, keep, skip, many, oneOrMore, sepBy1, maybe },
-        ParserStr.{ RawStr, parseStr, strFromRaw, codeunit, codeunitSatisfies },
+        ParserCore.{
+            Parser,
+            map,
+            map2,
+            const,
+            keep,
+            skip,
+            many,
+            oneOrMore,
+            sepBy1,
+            maybe,
+        },
+        ParserStr.{
+            RawStr,
+            parseStr,
+            strFromRaw,
+            codeunit,
+            codeunitSatisfies,
+            oneOf,
+            string,
+        },
     ]
+
+# Definition
+
+Definition : [
+    Operation
+        {
+            type : [Query, Mutation],
+            # TODO: Variable definitions
+            # TODO: Directives
+            selectionSet : List Selection,
+        },
+    # TODO: Fragment definition
+]
+
+# Operation
+
+operation : Parser RawStr Definition
+operation =
+    const \type -> \ss -> Operation { type, selectionSet: ss }
+    |> keep (maybe opType |> withDefault Query)
+    |> skip ignored
+    |> keep selectionSet
+
+opType : Parser RawStr [Query, Mutation]
+opType =
+    oneOf [
+        string "query" |> map \_ -> Query,
+        string "mutation" |> map \_ -> Mutation,
+    ]
+
+expect
+    parseStr operation "query { user { id } }"
+    == Ok (Operation { type: Query, selectionSet: [tf "user" |> ts [tf "id"]] })
+expect
+    parseStr operation "mutation { logOut { success } }"
+    == Ok (Operation { type: Mutation, selectionSet: [tf "logOut" |> ts [tf "success"]] })
+expect
+    parseStr operation "{ user { id } }"
+    == Ok (Operation { type: Query, selectionSet: [tf "user" |> ts [tf "id"]] })
 
 # Selection
 
@@ -33,11 +91,11 @@ selectionSet =
     |> skip (codeunit '}')
 
 expect parseStr selectionSet "{}" |> Result.isErr
-expect parseStr selectionSet "{name}" == Ok [sf "name"]
-expect parseStr selectionSet "{ name }" == Ok [sf "name"]
-expect parseStr selectionSet "{ name email }" == Ok [sf "name", sf "email"]
-expect parseStr selectionSet "{ name\nemail }" == Ok [sf "name", sf "email"]
-expect parseStr selectionSet "{ name, email }" == Ok [sf "name", sf "email"]
+expect parseStr selectionSet "{name}" == Ok [tf "name"]
+expect parseStr selectionSet "{ name }" == Ok [tf "name"]
+expect parseStr selectionSet "{ name email }" == Ok [tf "name", tf "email"]
+expect parseStr selectionSet "{ name\nemail }" == Ok [tf "name", tf "email"]
+expect parseStr selectionSet "{ name, email }" == Ok [tf "name", tf "email"]
 expect
     parseStr
         selectionSet
@@ -49,19 +107,13 @@ expect
         }
         """
     == Ok [
-        Field {
-            field: "name",
-            alias: Ok "fullName",
-            selectionSet: [],
-        },
-        sf "email",
-        sf "phone",
+        tf "name" |> ta "fullName",
+        tf "email",
+        tf "phone",
     ]
 expect parseStr selectionSet "" |> Result.isErr
 expect parseStr selectionSet "{name" |> Result.isErr
 expect parseStr selectionSet "name}" |> Result.isErr
-
-sf = \fname -> Field { field: fname, alias: Err Nothing, selectionSet: [] }
 
 # Field
 
@@ -72,11 +124,7 @@ field =
     |> skip ignored
     |> keep (maybe colonAndFieldName)
     |> skip ignored
-    |> keep
-        (
-            maybe definitelyNotSelectionSet
-            |> map (\m -> Result.withDefault m [])
-        )
+    |> keep (maybe definitelyNotSelectionSet |> withDefault [])
 
 # Workaround for: https://github.com/roc-lang/roc/issues/5682
 definitelyNotSelectionSet : Parser RawStr (List Selection)
@@ -105,31 +153,22 @@ colonAndFieldName =
     |> skip ignored
     |> keep name
 
-expect parseStr field "name" == Ok (Field { field: "name", alias: Err Nothing, selectionSet: [] })
-expect parseStr field "fullName:name" == Ok (Field { field: "name", alias: Ok "fullName", selectionSet: [] })
-expect parseStr field "fullName: name" == Ok (Field { field: "name", alias: Ok "fullName", selectionSet: [] })
-expect parseStr field "fullName : name" == Ok (Field { field: "name", alias: Ok "fullName", selectionSet: [] })
-expect parseStr field "user { name, age }" == Ok (Field { field: "user", alias: Err Nothing, selectionSet: [sf "name", sf "age"] })
+expect parseStr field "name" == Ok (tf "name")
+expect parseStr field "fullName:name" == Ok (tf "name" |> ta "fullName")
+expect parseStr field "fullName: name" == Ok (tf "name" |> ta "fullName")
+expect parseStr field "fullName : name" == Ok (tf "name" |> ta "fullName")
+expect parseStr field "user { name, age }" == Ok (tf "user" |> ts [tf "name", tf "age"])
 expect
     parseStr field "viewer: user { id posts { id title } name }"
     == Ok
         (
-            Field {
-                field: "user",
-                alias: Ok "viewer",
-                selectionSet: [
-                    sf "id",
-                    Field {
-                        field: "posts",
-                        alias: Err Nothing,
-                        selectionSet: [
-                            sf "id",
-                            sf "title",
-                        ],
-                    },
-                    sf "name"
-                ],
-            }
+            tf "user"
+            |> ta "viewer"
+            |> ts [
+                tf "id",
+                tf "posts" |> ts [tf "id", tf "title"],
+                tf "name",
+            ]
         )
 
 # Name
@@ -173,6 +212,12 @@ isNumeric = \code ->
 isAlphanumeric = \code ->
     isAlpha code || isNumeric code
 
+# Test field helpers
+
+tf = \fname -> Field { field: fname, alias: Err Nothing, selectionSet: [] }
+ts = \Field fiel, ss -> Field { fiel & selectionSet: ss }
+ta = \Field fiel, alias -> Field { fiel & alias: Ok alias }
+
 # Helpers
 
 ignored =
@@ -189,3 +234,7 @@ ignoredCodeunit =
         || (c == ',')
 
 identity = \x -> x
+
+withDefault : Parser input (Result a [Nothing]), a -> Parser input a
+withDefault = \parser, def ->
+    parser |> map (\m -> Result.withDefault m def)
