@@ -50,8 +50,8 @@ expect
             }
         }
 
-        query {
-            posts {
+        query Posts($active: Boolean!, $after: Date) {
+            posts(active: $active, before: "2021", after: $after) {
                 id
                 title
             }
@@ -61,6 +61,7 @@ expect
         Operation {
             type: Query,
             name: Ok "GetUser",
+            variables: [],
             selectionSet: [
                 testField "me"
                 |> withSelection [
@@ -71,9 +72,18 @@ expect
         },
         Operation {
             type: Query,
-            name: Err Nothing,
+            name: Ok "Posts",
+            variables: [
+                { name: "active", type: NonNull (Named "Boolean"), default: Err Nothing },
+                { name: "after", type: Nullable (Named "Date"), default: Err Nothing },
+            ],
             selectionSet: [
                 testField "posts"
+                |> withArgs [
+                    ("active", Variable "active"),
+                    ("before", StringValue "2021"),
+                    ("after", Variable "after"),
+                ]
                 |> withSelection [
                     testField "id",
                     testField "title",
@@ -89,7 +99,7 @@ Definition : [
         {
             type : OperationType,
             name : Result Str [Nothing],
-            # TODO: Variable definitions
+            variables : List VariableDefinition,
             # TODO: Directives
             selectionSet : List Selection,
         },
@@ -113,10 +123,12 @@ definition =
 
 operationDefinition : Parser RawStr Definition
 operationDefinition =
-    const \typ -> \nam -> \ss -> Operation { type: typ, name: nam, selectionSet: ss }
+    const \typ -> \nam -> \vars -> \ss -> Operation { type: typ, name: nam, variables: vars, selectionSet: ss }
     |> keep (maybe opType |> withDefault Query)
     |> skip ignored
     |> keep (maybe name)
+    |> skip ignored
+    |> keep (maybe variableDefinitions |> withDefault [])
     |> skip ignored
     |> keep selectionSet
 
@@ -137,17 +149,31 @@ expect
             Operation {
                 type: Query,
                 name: Err Nothing,
+                variables: [],
                 selectionSet: [testField "user" |> withSelection [testField "id"]],
             }
         )
 expect
-    parseStr operationDefinition "query GetUser { user { id } }"
+    parseStr operationDefinition "query GetUser($id: ID!) { user(id: $id) { id } }"
     == Ok
         (
             Operation {
                 type: Query,
                 name: Ok "GetUser",
-                selectionSet: [testField "user" |> withSelection [testField "id"]],
+                variables: [
+                    {
+                        name: "id",
+                        type: NonNull (Named "ID"),
+                        default: Err Nothing,
+                    },
+                ],
+                selectionSet: [
+                    testField "user"
+                    |> withArgs [
+                        ("id", Variable "id"),
+                    ]
+                    |> withSelection [testField "id"],
+                ],
             }
         )
 expect
@@ -157,6 +183,7 @@ expect
             Operation {
                 type: Mutation,
                 name: Ok "LogOut",
+                variables: [],
                 selectionSet: [testField "logOut" |> withSelection [testField "success"]],
             }
         )
@@ -167,6 +194,7 @@ expect
             Operation {
                 type: Subscription,
                 name: Err Nothing,
+                variables: [],
                 selectionSet: [testField "messages" |> withSelection [testField "id", testField "body"]],
             }
         )
@@ -177,6 +205,7 @@ expect
             Operation {
                 type: Query,
                 name: Err Nothing,
+                variables: [],
                 selectionSet: [testField "user" |> withSelection [testField "id"]],
             }
         )
@@ -189,6 +218,15 @@ VariableDefinition : {
     default : Result Value [Nothing],
     # TODO: Directives
 }
+
+variableDefinitions : Parser RawStr (List VariableDefinition)
+variableDefinitions =
+    const identity
+    |> skip (codeunit '(')
+    |> skip ignored
+    |> keep (variableDefinition |> sepBy1 ignored)
+    |> skip ignored
+    |> skip (codeunit ')')
 
 variableDefinition : Parser RawStr VariableDefinition
 variableDefinition =
