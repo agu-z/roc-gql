@@ -28,6 +28,8 @@ interface Gql.Parser
         },
     ]
 
+# https://spec.graphql.org/October2021
+
 # Document
 
 Document : List Definition
@@ -60,10 +62,10 @@ expect
             type: Query,
             name: Ok "GetUser",
             selectionSet: [
-                tf "me"
-                |> ts [
-                    tf "id",
-                    tf "name",
+                testField "me"
+                |> withSelection [
+                    testField "id",
+                    testField "name",
                 ],
             ],
         },
@@ -71,10 +73,10 @@ expect
             type: Query,
             name: Err Nothing,
             selectionSet: [
-                tf "posts"
-                |> ts [
-                    tf "id",
-                    tf "title",
+                testField "posts"
+                |> withSelection [
+                    testField "id",
+                    testField "title",
                 ],
             ],
         },
@@ -135,7 +137,7 @@ expect
             Operation {
                 type: Query,
                 name: Err Nothing,
-                selectionSet: [tf "user" |> ts [tf "id"]],
+                selectionSet: [testField "user" |> withSelection [testField "id"]],
             }
         )
 expect
@@ -145,7 +147,7 @@ expect
             Operation {
                 type: Query,
                 name: Ok "GetUser",
-                selectionSet: [tf "user" |> ts [tf "id"]],
+                selectionSet: [testField "user" |> withSelection [testField "id"]],
             }
         )
 expect
@@ -155,7 +157,7 @@ expect
             Operation {
                 type: Mutation,
                 name: Ok "LogOut",
-                selectionSet: [tf "logOut" |> ts [tf "success"]],
+                selectionSet: [testField "logOut" |> withSelection [testField "success"]],
             }
         )
 expect
@@ -165,7 +167,7 @@ expect
             Operation {
                 type: Subscription,
                 name: Err Nothing,
-                selectionSet: [tf "messages" |> ts [tf "id", tf "body"]],
+                selectionSet: [testField "messages" |> withSelection [testField "id", testField "body"]],
             }
         )
 expect
@@ -175,7 +177,7 @@ expect
             Operation {
                 type: Query,
                 name: Err Nothing,
-                selectionSet: [tf "user" |> ts [tf "id"]],
+                selectionSet: [testField "user" |> withSelection [testField "id"]],
             }
         )
 
@@ -203,12 +205,12 @@ expect
                 name: "UserDetails",
                 typeName: "User",
                 selectionSet: [
-                    tf "id",
-                    tf "name",
-                    tf "posts"
-                    |> ts [
-                        tf "id",
-                        tf "title",
+                    testField "id",
+                    testField "name",
+                    testField "posts"
+                    |> withSelection [
+                        testField "id",
+                        testField "title",
                     ],
                 ],
             }
@@ -233,6 +235,7 @@ Selection : [
         {
             field : Str,
             alias : Result Str [Nothing],
+            arguments : List Argument,
             # TODO: Arguments
             # TODO: Directives
             selectionSet : List Selection,
@@ -256,11 +259,11 @@ selectionSet =
     |> skip (codeunit '}')
 
 expect parseStr selectionSet "{}" |> Result.isErr
-expect parseStr selectionSet "{name}" == Ok [tf "name"]
-expect parseStr selectionSet "{ name }" == Ok [tf "name"]
-expect parseStr selectionSet "{ name email }" == Ok [tf "name", tf "email"]
-expect parseStr selectionSet "{ name\nemail }" == Ok [tf "name", tf "email"]
-expect parseStr selectionSet "{ name, email }" == Ok [tf "name", tf "email"]
+expect parseStr selectionSet "{name}" == Ok [testField "name"]
+expect parseStr selectionSet "{ name }" == Ok [testField "name"]
+expect parseStr selectionSet "{ name email }" == Ok [testField "name", testField "email"]
+expect parseStr selectionSet "{ name\nemail }" == Ok [testField "name", testField "email"]
+expect parseStr selectionSet "{ name, email }" == Ok [testField "name", testField "email"]
 expect
     parseStr
         selectionSet
@@ -272,9 +275,9 @@ expect
         }
         """
     == Ok [
-        tf "name" |> ta "fullName",
-        tf "email",
-        tf "phone",
+        testField "name" |> withAlias "fullName",
+        testField "email",
+        testField "phone",
     ]
 expect parseStr selectionSet "" |> Result.isErr
 expect parseStr selectionSet "{name" |> Result.isErr
@@ -284,10 +287,12 @@ expect parseStr selectionSet "name}" |> Result.isErr
 
 field : Parser RawStr Selection
 field =
-    const \left -> \right -> \ss -> mkField left right ss
+    const \left -> \right -> \args -> \ss -> mkField left right args ss
     |> keep name
     |> skip ignored
     |> keep (maybe colonAndFieldName)
+    |> skip ignored
+    |> keep (maybe arguments |> withDefault [])
     |> skip ignored
     |> keep (maybe definitelyNotSelectionSet |> withDefault [])
 
@@ -296,12 +301,13 @@ definitelyNotSelectionSet : Parser RawStr (List Selection)
 definitelyNotSelectionSet =
     ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial selectionSet input)
 
-mkField = \left, right, ss ->
+mkField = \left, right, args, ss ->
     when right is
         Ok f ->
             Field {
                 field: f,
                 alias: Ok left,
+                arguments: args,
                 selectionSet: ss,
             }
 
@@ -309,6 +315,7 @@ mkField = \left, right, ss ->
             Field {
                 field: left,
                 alias: Err Nothing,
+                arguments: args,
                 selectionSet: ss,
             }
 
@@ -318,23 +325,71 @@ colonAndFieldName =
     |> skip ignored
     |> keep name
 
-expect parseStr field "name" == Ok (tf "name")
-expect parseStr field "fullName:name" == Ok (tf "name" |> ta "fullName")
-expect parseStr field "fullName: name" == Ok (tf "name" |> ta "fullName")
-expect parseStr field "fullName : name" == Ok (tf "name" |> ta "fullName")
-expect parseStr field "user { name, age }" == Ok (tf "user" |> ts [tf "name", tf "age"])
+expect parseStr field "name" == Ok (testField "name")
+expect parseStr field "fullName:name" == Ok (testField "name" |> withAlias "fullName")
+expect parseStr field "fullName: name" == Ok (testField "name" |> withAlias "fullName")
+expect parseStr field "fullName : name" == Ok (testField "name" |> withAlias "fullName")
+expect parseStr field "post(id: 1)" == Ok (testField "post" |> withArgs [("id", IntValue 1)])
 expect
-    parseStr field "viewer: user { id posts { id title } name }"
+    parseStr field "firstPost: post(id: 1)"
     == Ok
         (
-            tf "user"
-            |> ta "viewer"
-            |> ts [
-                tf "id",
-                tf "posts" |> ts [tf "id", tf "title"],
-                tf "name",
+            testField "post"
+            |> withAlias "firstPost"
+            |> withArgs [("id", IntValue 1)]
+        )
+expect
+    parseStr field "user { name, age }"
+    == Ok
+        (
+            testField "user"
+            |> withSelection [
+                testField "name",
+                testField "age",
             ]
         )
+expect
+    parseStr field "viewer: user { id posts(status: ACTIVE, after: \"2023-10-04\") { id title } name }"
+    == Ok
+        (
+            testField "user"
+            |> withAlias "viewer"
+            |> withSelection [
+                testField "id",
+                testField "posts"
+                |> withArgs [
+                    ("status", EnumValue "ACTIVE"),
+                    ("after", StringValue "2023-10-04"),
+                ]
+                |> withSelection [
+                    testField "id",
+                    testField "title",
+                ],
+                testField "name",
+            ]
+        )
+
+# Argument
+
+Argument : (Str, Value)
+
+arguments : Parser RawStr (List Argument)
+arguments =
+    const identity
+    |> skip (codeunit '(')
+    |> skip ignored
+    |> keep (argument |> sepBy1 ignored)
+    |> skip ignored
+    |> skip (codeunit ')')
+
+argument : Parser RawStr Argument
+argument =
+    const \k -> \v -> (k, v)
+    |> keep name
+    |> skip ignored
+    |> skip (codeunit ':')
+    |> skip ignored
+    |> keep value
 
 # Value
 
@@ -554,9 +609,10 @@ isAlphanumeric = \code ->
 
 # Test field helpers
 
-tf = \fname -> Field { field: fname, alias: Err Nothing, selectionSet: [] }
-ts = \Field fiel, ss -> Field { fiel & selectionSet: ss }
-ta = \Field fiel, alias -> Field { fiel & alias: Ok alias }
+testField = \fname -> Field { field: fname, alias: Err Nothing, arguments: [], selectionSet: [] }
+withSelection = \Field fiel, ss -> Field { fiel & selectionSet: ss }
+withAlias = \Field fiel, alias -> Field { fiel & alias: Ok alias }
+withArgs = \Field fiel, args -> Field { fiel & arguments: args }
 
 # Helpers
 
