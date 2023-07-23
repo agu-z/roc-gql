@@ -5,6 +5,7 @@ interface Gql.Parser
             Parser,
             map,
             map2,
+            fail,
             const,
             keep,
             skip,
@@ -12,6 +13,7 @@ interface Gql.Parser
             oneOrMore,
             sepBy1,
             maybe,
+            andThen,
         },
         ParserStr.{
             RawStr,
@@ -86,16 +88,26 @@ Definition : [
             # TODO: Directives
             selectionSet : List Selection,
         },
-    # TODO: Fragment definition
+    Fragment
+        {
+            name : Str,
+            typeName : Str,
+            # TODO: Directives
+            selectionSet : List Selection,
+        },
 ]
 
 definition : Parser RawStr Definition
-definition = operation
+definition =
+    oneOf [
+        operationDefinition,
+        fragmentDefinition,
+    ]
 
-# Operation
+# Operation Definition
 
-operation : Parser RawStr Definition
-operation =
+operationDefinition : Parser RawStr Definition
+operationDefinition =
     const \type -> \nam -> \ss -> Operation { type, name: nam, selectionSet: ss }
     |> keep (maybe opType |> withDefault Query)
     |> skip ignored
@@ -114,7 +126,7 @@ opType =
     ]
 
 expect
-    parseStr operation "query { user { id } }"
+    parseStr operationDefinition "query { user { id } }"
     == Ok
         (
             Operation {
@@ -124,7 +136,7 @@ expect
             }
         )
 expect
-    parseStr operation "query GetUser { user { id } }"
+    parseStr operationDefinition "query GetUser { user { id } }"
     == Ok
         (
             Operation {
@@ -134,7 +146,7 @@ expect
             }
         )
 expect
-    parseStr operation "mutation LogOut { logOut { success } }"
+    parseStr operationDefinition "mutation LogOut { logOut { success } }"
     == Ok
         (
             Operation {
@@ -144,7 +156,7 @@ expect
             }
         )
 expect
-    parseStr operation "subscription { messages { id body } }"
+    parseStr operationDefinition "subscription { messages { id body } }"
     == Ok
         (
             Operation {
@@ -154,7 +166,7 @@ expect
             }
         )
 expect
-    parseStr operation "{ user { id } }"
+    parseStr operationDefinition "{ user { id } }"
     == Ok
         (
             Operation {
@@ -163,6 +175,52 @@ expect
                 selectionSet: [tf "user" |> ts [tf "id"]],
             }
         )
+
+# Fragment Definition
+
+fragmentDefinition : Parser RawStr Definition
+fragmentDefinition =
+    const \fname -> \typeName -> \ss -> Fragment { name: fname, typeName, selectionSet: ss }
+    |> skip (string "fragment")
+    |> skip ignored
+    |> keep fragmentName
+    |> skip ignored
+    |> skip (string "on")
+    |> skip ignored
+    |> keep name
+    |> skip ignored
+    |> keep selectionSet
+
+expect
+    parsed = parseStr fragmentDefinition "fragment UserDetails on User { id name posts { id, title } }"
+    parsed == Ok
+        (
+            Fragment {
+                name: "UserDetails",
+                typeName: "User",
+                selectionSet: [
+                    tf "id",
+                    tf "name",
+                    tf "posts"
+                    |> ts [
+                        tf "id",
+                        tf "title",
+                    ],
+                ],
+            }
+        )
+
+fragmentName : Parser RawStr Str
+fragmentName =
+    fname <- name |> andThen
+
+    if fname == "on" then
+        fail "Fragment name must not be 'on'"
+    else
+        const fname
+
+expect parseStr fragmentName "UserDetails" == Ok "UserDetails"
+expect parseStr fragmentName "on" |> Result.isErr
 
 # Selection
 
@@ -181,6 +239,8 @@ Selection : [
 selection : Parser RawStr Selection
 selection =
     field
+
+# Selection Set
 
 selectionSet : Parser RawStr (List Selection)
 selectionSet =

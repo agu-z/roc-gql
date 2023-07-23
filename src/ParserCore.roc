@@ -23,6 +23,7 @@ interface ParserCore
         ignore,
         buildPrimitiveParser,
         flatten,
+        andThen,
     ]
     imports []
 
