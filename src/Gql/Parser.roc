@@ -113,7 +113,7 @@ definition =
 
 operationDefinition : Parser RawStr Definition
 operationDefinition =
-    const \type -> \nam -> \ss -> Operation { type, name: nam, selectionSet: ss }
+    const \typ -> \nam -> \ss -> Operation { type: typ, name: nam, selectionSet: ss }
     |> keep (maybe opType |> withDefault Query)
     |> skip ignored
     |> keep (maybe name)
@@ -180,6 +180,59 @@ expect
                 selectionSet: [testField "user" |> withSelection [testField "id"]],
             }
         )
+
+# Type
+
+Type : [
+    Nullable NamedOrListType,
+    NonNull NamedOrListType,
+]
+
+NamedOrListType : [
+    Named Str,
+    ListT Type,
+]
+
+type : Parser RawStr Type
+type =
+    oneOf [
+        nonNullType,
+        namedOrListType |> map Nullable,
+    ]
+
+expect parseStr type "User" == Ok (Named "User" |> Nullable)
+expect parseStr type "User!" == Ok (Named "User" |> NonNull)
+expect parseStr type "[User]" == Ok (Named "User" |> Nullable |> ListT |> Nullable)
+expect parseStr type "[User!]" == Ok (Named "User" |> NonNull |> ListT |> Nullable)
+expect parseStr type "[User!]!" == Ok (Named "User" |> NonNull |> ListT |> NonNull)
+expect parseStr type "[[User]!]!" == Ok (Named "User" |> Nullable |> ListT |> NonNull |> ListT |> NonNull)
+
+nonNullType : Parser RawStr Type
+nonNullType =
+    const NonNull
+    |> keep namedOrListType
+    |> skip ignored
+    |> skip (codeunit '!')
+
+namedOrListType : Parser RawStr NamedOrListType
+namedOrListType =
+    oneOf [
+        namedType,
+        listType,
+    ]
+
+namedType : Parser RawStr NamedOrListType
+namedType =
+    name |> map Named
+
+listType : Parser RawStr NamedOrListType
+listType =
+    const ListT
+    |> skip (codeunit '[')
+    |> skip ignored
+    |> keep recursiveType
+    |> skip ignored
+    |> skip (codeunit ']')
 
 # Fragment Definition
 
@@ -294,12 +347,7 @@ field =
     |> skip ignored
     |> keep (maybe arguments |> withDefault [])
     |> skip ignored
-    |> keep (maybe definitelyNotSelectionSet |> withDefault [])
-
-# Workaround for: https://github.com/roc-lang/roc/issues/5682
-definitelyNotSelectionSet : Parser RawStr (List Selection)
-definitelyNotSelectionSet =
-    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial selectionSet input)
+    |> keep (maybe recursiveSelectionSet |> withDefault [])
 
 mkField = \left, right, args, ss ->
     when right is
@@ -447,11 +495,6 @@ expect
             ]
         )
 
-# Workaround for: https://github.com/roc-lang/roc/issues/5682
-definitelyNotValue : Parser RawStr Value
-definitelyNotValue =
-    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial value input)
-
 # Value: Variable
 
 variable : Parser RawStr Value
@@ -542,7 +585,7 @@ listValue =
     const ListValue
     |> skip (codeunit '[')
     |> skip ignored
-    |> keep (definitelyNotValue |> sepBy ignored)
+    |> keep (recursiveValue |> sepBy ignored)
     |> skip ignored
     |> skip (codeunit ']')
 
@@ -564,7 +607,7 @@ objectField =
     |> skip ignored
     |> skip (codeunit ':')
     |> skip ignored
-    |> keep definitelyNotValue
+    |> keep recursiveValue
 
 # Name
 
@@ -634,3 +677,17 @@ identity = \x -> x
 withDefault : Parser input (Result a [Nothing]), a -> Parser input a
 withDefault = \parser, def ->
     parser |> map (\m -> Result.withDefault m def)
+
+# Workaround for: https://github.com/roc-lang/roc/issues/5682
+
+recursiveSelectionSet : Parser RawStr (List Selection)
+recursiveSelectionSet =
+    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial selectionSet input)
+
+recursiveValue : Parser RawStr Value
+recursiveValue =
+    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial value input)
+
+recursiveType : Parser RawStr Type
+recursiveType =
+    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial type input)
