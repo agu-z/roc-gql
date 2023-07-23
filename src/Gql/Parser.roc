@@ -340,9 +340,9 @@ Value : [
     Variable Str,
     IntValue I32,
     StringValue Str,
+    BooleanValue Bool,
     # TODO:
     # FloatValue
-    # BooleanValue
     # NullValue
     # EnumValue
     # ListValueConst
@@ -355,6 +355,7 @@ value =
         variable,
         intValue,
         stringValue,
+        booleanValue
     ]
 
 expect parseStr value "$id" == Ok (Variable "id")
@@ -363,6 +364,10 @@ expect parseStr value "-456" == Ok (IntValue -456)
 expect parseStr value "\"hello world\"" == Ok (StringValue "hello world")
 expect parseStr value "\"hello\\nworld\"" == Ok (StringValue "hello\nworld")
 expect parseStr value "\"my name is \\\"Agus\\\"\"" == Ok (StringValue "my name is \"Agus\"")
+expect parseStr value "true" == Ok (BooleanValue Bool.true)
+expect parseStr value "false" == Ok (BooleanValue Bool.false)
+
+# Value: Variable
 
 variable : Parser RawStr Value
 variable =
@@ -370,12 +375,17 @@ variable =
     |> skip (codeunit '$')
     |> keep name
 
+# Value: Int
+
 intValue : Parser RawStr Value
 intValue =
     # TODO: Be more strict about leading zeroes
     const \neg -> \num -> if Result.isOk neg then IntValue -num else IntValue num
     |> keep (maybe (codeunit '-'))
     |> keep ParserStr.positiveInt
+
+
+# Value: String
 
 stringValue : Parser RawStr Value
 stringValue =
@@ -417,6 +427,15 @@ escapedChar =
         codeunit 'n' |> map \_ -> '\n',
         codeunit 'r' |> map \_ -> '\r',
         codeunit 't' |> map \_ -> '\t',
+    ]
+
+# Value: Boolean
+
+booleanValue : Parser RawStr Value
+booleanValue = 
+    oneOf [
+        string "true" |> map \_ -> BooleanValue Bool.true,
+        string "false" |> map \_ -> BooleanValue Bool.false,
     ]
 
 # Name
