@@ -341,9 +341,9 @@ Value : [
     IntValue I32,
     StringValue Str,
     BooleanValue Bool,
+    NullValue,
     # TODO:
     # FloatValue
-    # NullValue
     # EnumValue
     # ListValueConst
     # ObjectValue
@@ -355,7 +355,8 @@ value =
         variable,
         intValue,
         stringValue,
-        booleanValue
+        booleanValue,
+        nullValue,
     ]
 
 expect parseStr value "$id" == Ok (Variable "id")
@@ -366,6 +367,7 @@ expect parseStr value "\"hello\\nworld\"" == Ok (StringValue "hello\nworld")
 expect parseStr value "\"my name is \\\"Agus\\\"\"" == Ok (StringValue "my name is \"Agus\"")
 expect parseStr value "true" == Ok (BooleanValue Bool.true)
 expect parseStr value "false" == Ok (BooleanValue Bool.false)
+expect parseStr value "null" == Ok NullValue
 
 # Value: Variable
 
@@ -383,7 +385,6 @@ intValue =
     const \neg -> \num -> if Result.isOk neg then IntValue -num else IntValue num
     |> keep (maybe (codeunit '-'))
     |> keep ParserStr.positiveInt
-
 
 # Value: String
 
@@ -432,11 +433,17 @@ escapedChar =
 # Value: Boolean
 
 booleanValue : Parser RawStr Value
-booleanValue = 
+booleanValue =
     oneOf [
         string "true" |> map \_ -> BooleanValue Bool.true,
         string "false" |> map \_ -> BooleanValue Bool.false,
     ]
+
+# Value: Null
+
+nullValue : Parser RawStr Value
+nullValue =
+    string "null" |> map \_ -> NullValue
 
 # Name
 
