@@ -24,6 +24,57 @@ interface Gql.Parser
         },
     ]
 
+# Document
+
+Document : List Definition
+
+document : Parser RawStr Document
+document =
+    sepBy1 definition ignored
+
+expect
+    parseStr
+        document
+        """
+        query GetUser {
+            me {
+                id
+                name
+            }
+        }
+
+        query {
+            posts {
+                id
+                title
+            }
+        }
+        """
+    == Ok [
+        Operation {
+            type: Query,
+            name: Ok "GetUser",
+            selectionSet: [
+                tf "me"
+                |> ts [
+                    tf "id",
+                    tf "name",
+                ],
+            ],
+        },
+        Operation {
+            type: Query,
+            name: Err Nothing,
+            selectionSet: [
+                tf "posts"
+                |> ts [
+                    tf "id",
+                    tf "title",
+                ],
+            ],
+        },
+    ]
+
 # Definition
 
 Definition : [
@@ -37,6 +88,9 @@ Definition : [
         },
     # TODO: Fragment definition
 ]
+
+definition : Parser RawStr Definition
+definition = operation
 
 # Operation
 
