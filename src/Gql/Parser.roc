@@ -342,9 +342,9 @@ Value : [
     StringValue Str,
     BooleanValue Bool,
     NullValue,
+    EnumValue Str,
     # TODO:
     # FloatValue
-    # EnumValue
     # ListValueConst
     # ObjectValue
 ]
@@ -357,6 +357,7 @@ value =
         stringValue,
         booleanValue,
         nullValue,
+        enumValue,
     ]
 
 expect parseStr value "$id" == Ok (Variable "id")
@@ -368,6 +369,8 @@ expect parseStr value "\"my name is \\\"Agus\\\"\"" == Ok (StringValue "my name 
 expect parseStr value "true" == Ok (BooleanValue Bool.true)
 expect parseStr value "false" == Ok (BooleanValue Bool.false)
 expect parseStr value "null" == Ok NullValue
+expect parseStr value "ACTIVE" == Ok (EnumValue "ACTIVE")
+expect parseStr value "suspended" == Ok (EnumValue "suspended")
 
 # Value: Variable
 
@@ -444,6 +447,14 @@ booleanValue =
 nullValue : Parser RawStr Value
 nullValue =
     string "null" |> map \_ -> NullValue
+
+# Value: Enum
+
+enumValue : Parser RawStr Value
+enumValue =
+    # No need to check for true/false/null because it would never get here
+    name |> map EnumValue
+
 
 # Name
 
