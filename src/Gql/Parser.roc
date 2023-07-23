@@ -29,7 +29,7 @@ interface Gql.Parser
 Definition : [
     Operation
         {
-            type : [Query, Mutation],
+            type : OperationType,
             # TODO: Variable definitions
             # TODO: Directives
             selectionSet : List Selection,
@@ -46,11 +46,14 @@ operation =
     |> skip ignored
     |> keep selectionSet
 
-opType : Parser RawStr [Query, Mutation]
+OperationType :  [Query, Mutation, Subscription]
+
+opType : Parser RawStr OperationType
 opType =
     oneOf [
         string "query" |> map \_ -> Query,
         string "mutation" |> map \_ -> Mutation,
+        string "subscription" |> map \_ -> Subscription,
     ]
 
 expect
@@ -59,6 +62,9 @@ expect
 expect
     parseStr operation "mutation { logOut { success } }"
     == Ok (Operation { type: Mutation, selectionSet: [tf "logOut" |> ts [tf "success"]] })
+expect
+    parseStr operation "subscription { messages { id body } }"
+    == Ok (Operation { type: Subscription, selectionSet: [tf "messages" |> ts [tf "id", tf "body"]] })
 expect
     parseStr operation "{ user { id } }"
     == Ok (Operation { type: Query, selectionSet: [tf "user" |> ts [tf "id"]] })
