@@ -5,6 +5,7 @@ interface Gql.Parser
             Parser,
             map,
             map2,
+            between,
             fail,
             const,
             keep,
@@ -338,9 +339,9 @@ expect
 Value : [
     Variable Str,
     IntValue I32,
+    StringValue Str,
     # TODO:
     # FloatValue
-    # StringValue
     # BooleanValue
     # NullValue
     # EnumValue
@@ -353,11 +354,15 @@ value =
     oneOf [
         variable,
         intValue,
+        stringValue,
     ]
 
 expect parseStr value "$id" == Ok (Variable "id")
 expect parseStr value "123" == Ok (IntValue 123)
 expect parseStr value "-456" == Ok (IntValue -456)
+expect parseStr value "\"hello world\"" == Ok (StringValue "hello world")
+expect parseStr value "\"hello\\nworld\"" == Ok (StringValue "hello\nworld")
+expect parseStr value "\"my name is \\\"Agus\\\"\"" == Ok (StringValue "my name is \"Agus\"")
 
 variable : Parser RawStr Value
 variable =
@@ -371,6 +376,48 @@ intValue =
     const \neg -> \num -> if Result.isOk neg then IntValue -num else IntValue num
     |> keep (maybe (codeunit '-'))
     |> keep ParserStr.positiveInt
+
+stringValue : Parser RawStr Value
+stringValue =
+    # TODO: Block strings
+    chars <-
+        many stringChar
+        |> between (codeunit '"') (codeunit '"')
+        |> andThen
+
+    when Str.fromUtf8 chars is
+        Ok str ->
+            const (StringValue str)
+
+        Err (BadUtf8 _ _) ->
+            fail "String value is not valid UTF8"
+
+stringChar : Parser RawStr U8
+stringChar =
+    oneOf [
+        codeunitSatisfies \char ->
+            (char != '"')
+            && (char != '\\')
+            && (char != '\n')
+            && (char != '\r'),
+        # TODO: Escaped unicode
+        const identity
+        |> skip (codeunit '\\')
+        |> keep escapedChar,
+    ]
+
+escapedChar : Parser RawStr U8
+escapedChar =
+    oneOf [
+        codeunit '"',
+        codeunit '\\',
+        codeunit '/',
+        codeunit 'b' |> map \_ -> 0x08,
+        codeunit 'f' |> map \_ -> 0x0c,
+        codeunit 'n' |> map \_ -> '\n',
+        codeunit 'r' |> map \_ -> '\r',
+        codeunit 't' |> map \_ -> '\t',
+    ]
 
 # Name
 
