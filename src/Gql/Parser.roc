@@ -815,12 +815,18 @@ expect
 
 name : Parser RawStr Str
 name =
-    start, continue <- map2 nameStart nameContinue
+    start, maybeContinue <- map2 nameStart (maybe nameContinue)
 
-    continue
-    |> List.prepend start
-    |> strFromRaw
+    when maybeContinue is
+        Ok continue ->
+            continue
+            |> List.prepend start
+            |> strFromRaw
 
+        Err Nothing ->
+            strFromRaw [start]
+
+expect parseStr name "x" == Ok "x"
 expect parseStr name "name" == Ok "name"
 expect parseStr name "productId" == Ok "productId"
 expect parseStr name "User" == Ok "User"
