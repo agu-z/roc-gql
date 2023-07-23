@@ -1,5 +1,5 @@
 interface Gql.Parser
-    exposes [selection]
+    exposes [document]
     imports [
         ParserCore.{
             Parser,
@@ -51,6 +51,9 @@ expect
                     ...PostDetails
                 }
             }
+            ... {
+                sessionId
+            }
         }
 
         query Posts($active: Boolean!, $after: Date) {
@@ -63,6 +66,15 @@ expect
         fragment PostDetails on Post {
             id 
             title
+            body {
+                __typename
+                ... on Text {
+                    text
+                }
+                ... on Image {
+                    imageUrl
+                }
+            }
         }
         """
     == Ok [
@@ -75,8 +87,12 @@ expect
                 |> withSelection [
                     testField "id",
                     testField "name",
-                    testField "posts" |> withSelection [FragmentSpread "PostDetails"]
+                    testField "posts" |> withSelection [FragmentSpread "PostDetails"],
                 ],
+                InlineFragment {
+                    typeName: Err Nothing,
+                    selectionSet: [testField "sessionId"]
+                }
             ],
         },
         Operation {
@@ -95,8 +111,8 @@ expect
                 ]
                 |> withSelection [
                     FragmentSpread "PostDetails",
-                    testField "status"
-                ]
+                    testField "status",
+                ],
             ],
         },
         Fragment {
@@ -105,8 +121,19 @@ expect
             selectionSet: [
                 testField "id",
                 testField "title",
-            ]
-        }
+                testField "body" |> withSelection [
+                    testField "__typename",
+                    InlineFragment {
+                        typeName: Ok "Text",
+                        selectionSet: [testField "text"]
+                    },
+                    InlineFragment {
+                        typeName: Ok "Image",
+                        selectionSet: [testField "imageUrl"]
+                    }
+                ]
+            ],
+        },
     ]
 
 # Definition
@@ -284,6 +311,7 @@ variable =
     |> skip (codeunit '$')
     |> keep name
 
+
 defaultValue : Parser RawStr Value
 defaultValue =
     const identity
@@ -353,11 +381,17 @@ fragmentDefinition =
     |> skip ignored
     |> keep fragmentName
     |> skip ignored
+    |> keep typeCondition
+    |> skip ignored
+    |> keep selectionSet
+
+
+typeCondition : Parser RawStr Str
+typeCondition  =
+    const identity
     |> skip (string "on")
     |> skip ignored
     |> keep name
-    |> skip ignored
-    |> keep selectionSet
 
 expect
     parsed = parseStr fragmentDefinition "fragment UserDetails on User { id name posts { id, title } }"
@@ -403,14 +437,20 @@ Selection : [
             selectionSet : List Selection,
         },
     FragmentSpread Str,
-    # TODO: Fragments
+    InlineFragment
+        {
+            typeName : Result Str [Nothing],
+            # TODO: Directives
+            selectionSet : List Selection,
+        },
 ]
 
 selection : Parser RawStr Selection
 selection =
     oneOf [
         field,
-        fragmentSpread
+        fragmentSpread,
+        recursiveInlineFragment,
     ]
 
 # Selection Set
@@ -431,6 +471,7 @@ expect parseStr selectionSet "{ name email }" == Ok [testField "name", testField
 expect parseStr selectionSet "{ name\nemail }" == Ok [testField "name", testField "email"]
 expect parseStr selectionSet "{ name, email }" == Ok [testField "name", testField "email"]
 expect parseStr selectionSet "{ ... PostDetails }" == Ok [FragmentSpread "PostDetails"]
+expect parseStr selectionSet "{ ... on Post { id } }" == Ok [InlineFragment { typeName: Ok "Post", selectionSet: [testField "id"] }]
 expect
     parseStr
         selectionSet
@@ -440,6 +481,9 @@ expect
             fullName: name, 
               email
             phone
+            ... on Admin {
+                permissions
+            }
         }
         """
     == Ok [
@@ -447,6 +491,12 @@ expect
         testField "name" |> withAlias "fullName",
         testField "email",
         testField "phone",
+        InlineFragment {
+            typeName: Ok "Admin",
+            selectionSet: [
+                testField "permissions"
+            ]
+        }
     ]
 expect parseStr selectionSet "" |> Result.isErr
 expect parseStr selectionSet "{name" |> Result.isErr
@@ -729,11 +779,37 @@ objectField =
 # Fragment Spread
 
 fragmentSpread : Parser RawStr Selection
-fragmentSpread = 
+fragmentSpread =
     const FragmentSpread
     |> skip (string "...")
     |> skip ignored
     |> keep fragmentName
+
+# Inline Fragment
+
+inlineFragment : Parser RawStr Selection
+inlineFragment =
+    const \typ -> \ss -> InlineFragment { typeName: typ, selectionSet: ss }
+    |> skip (string "...")
+    |> skip ignored
+    |> keep (maybe typeCondition)
+    |> skip ignored
+    |> keep recursiveSelectionSet
+
+expect parseStr inlineFragment "... on User { id }" == Ok (InlineFragment { typeName: Ok "User", selectionSet: [testField "id"] })
+expect parseStr inlineFragment "... { id }" == Ok (InlineFragment { typeName: Err Nothing, selectionSet: [testField "id"] })
+expect
+    parseStr inlineFragment "... on Post { id ...PostDetails }"
+    == Ok
+        (
+            InlineFragment {
+                typeName: Ok "Post",
+                selectionSet: [
+                    testField "id",
+                    FragmentSpread "PostDetails",
+                ],
+            }
+        )
 
 # Name
 
@@ -809,6 +885,10 @@ withDefault = \parser, def ->
 recursiveSelectionSet : Parser RawStr (List Selection)
 recursiveSelectionSet =
     ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial selectionSet input)
+
+recursiveInlineFragment : Parser RawStr Selection
+recursiveInlineFragment =
+    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial inlineFragment input)
 
 recursiveValue : Parser RawStr Value
 recursiveValue =
