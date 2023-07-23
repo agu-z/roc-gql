@@ -13,6 +13,7 @@ interface Gql.Parser
             many,
             oneOrMore,
             sepBy1,
+            sepBy,
             maybe,
             andThen,
         },
@@ -343,9 +344,9 @@ Value : [
     BooleanValue Bool,
     NullValue,
     EnumValue Str,
+    ListValue (List Value),
     # TODO:
     # FloatValue
-    # ListValueConst
     # ObjectValue
 ]
 
@@ -358,6 +359,7 @@ value =
         booleanValue,
         nullValue,
         enumValue,
+        listValue,
     ]
 
 expect parseStr value "$id" == Ok (Variable "id")
@@ -371,6 +373,10 @@ expect parseStr value "false" == Ok (BooleanValue Bool.false)
 expect parseStr value "null" == Ok NullValue
 expect parseStr value "ACTIVE" == Ok (EnumValue "ACTIVE")
 expect parseStr value "suspended" == Ok (EnumValue "suspended")
+expect parseStr value "[]" == Ok (ListValue [])
+expect parseStr value "[$id1, $id2]" == Ok (ListValue [Variable "id1", Variable "id2"])
+expect parseStr value "[42, 123, 234]" == Ok (ListValue [IntValue 42, IntValue 123, IntValue 234])
+expect parseStr value "[\"john\", \"Mike\"]" == Ok (ListValue [StringValue "john", StringValue "Mike"])
 
 # Value: Variable
 
@@ -455,6 +461,19 @@ enumValue =
     # No need to check for true/false/null because it would never get here
     name |> map EnumValue
 
+# Value: List
+
+listValue : Parser RawStr Value
+listValue =
+    definitelyNotValue
+    |> sepBy ignored
+    |> between (codeunit '[') (codeunit ']')
+    |> map ListValue
+
+# Workaround for: https://github.com/roc-lang/roc/issues/5682
+definitelyNotValue : Parser RawStr Value
+definitelyNotValue =
+    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial value input)
 
 # Name
 
