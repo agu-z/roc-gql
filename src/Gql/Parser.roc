@@ -181,6 +181,61 @@ expect
             }
         )
 
+# Variable Definition
+
+VariableDefinition : {
+    name : Str,
+    type : Type,
+    default : Result Value [Nothing],
+    # TODO: Directives
+}
+
+variableDefinition : Parser RawStr VariableDefinition
+variableDefinition =
+    const \vname -> \typ -> \dv -> { name: vname, type: typ, default: dv }
+    |> keep variable
+    |> skip ignored
+    |> skip (codeunit ':')
+    |> skip ignored
+    |> keep type
+    |> skip ignored
+    |> keep (maybe defaultValue)
+
+expect
+    parseStr variableDefinition "$id: ID"
+    == Ok {
+        name: "id",
+        type: Nullable (Named "ID"),
+        default: Err Nothing,
+    }
+expect
+    parseStr variableDefinition "$active: Boolean! = true"
+    == Ok {
+        name: "active",
+        type: NonNull (Named "Boolean"),
+        default: Ok (BooleanValue Bool.true),
+    }
+expect
+    parseStr variableDefinition "$ids :[ID!]= [\"1\", \"2\"]"
+    == Ok {
+        name: "ids",
+        type: Nullable (ListT (NonNull (Named "ID"))),
+        default: Ok (ListValue [StringValue "1", StringValue "2"]),
+    }
+
+variable : Parser RawStr Str
+variable =
+    const identity
+    |> skip (codeunit '$')
+    |> keep name
+
+defaultValue : Parser RawStr Value
+defaultValue =
+    const identity
+    |> skip (codeunit '=')
+    |> skip ignored
+    |> keep value
+
 # Type
 
 Type : [
@@ -457,7 +512,7 @@ Value : [
 value : Parser RawStr Value
 value =
     oneOf [
-        variable,
+        variableValue,
         intValue,
         stringValue,
         booleanValue,
@@ -497,10 +552,11 @@ expect
 
 # Value: Variable
 
-variable : Parser RawStr Value
-variable =
+variableValue : Parser RawStr Value
+variableValue =
     const Variable
     |> skip (codeunit '$')
+    |> skip ignored
     |> keep name
 
 # Value: Int
