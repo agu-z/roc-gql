@@ -382,7 +382,6 @@ Selection : [
             field : Str,
             alias : Result Str [Nothing],
             arguments : List Argument,
-            # TODO: Arguments
             # TODO: Directives
             selectionSet : List Selection,
         },
