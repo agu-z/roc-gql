@@ -47,14 +47,22 @@ expect
             me {
                 id
                 name
+                posts {
+                    ...PostDetails
+                }
             }
         }
 
         query Posts($active: Boolean!, $after: Date) {
             posts(active: $active, before: "2021", after: $after) {
-                id
-                title
+                ...PostDetails
+                status
             }
+        }
+
+        fragment PostDetails on Post {
+            id 
+            title
         }
         """
     == Ok [
@@ -67,6 +75,7 @@ expect
                 |> withSelection [
                     testField "id",
                     testField "name",
+                    testField "posts" |> withSelection [FragmentSpread "PostDetails"]
                 ],
             ],
         },
@@ -85,11 +94,19 @@ expect
                     ("after", Variable "after"),
                 ]
                 |> withSelection [
-                    testField "id",
-                    testField "title",
-                ],
+                    FragmentSpread "PostDetails",
+                    testField "status"
+                ]
             ],
         },
+        Fragment {
+            name: "PostDetails",
+            typeName: "Post",
+            selectionSet: [
+                testField "id",
+                testField "title",
+            ]
+        }
     ]
 
 # Definition
@@ -385,12 +402,16 @@ Selection : [
             # TODO: Directives
             selectionSet : List Selection,
         },
+    FragmentSpread Str,
     # TODO: Fragments
 ]
 
 selection : Parser RawStr Selection
 selection =
-    field
+    oneOf [
+        field,
+        fragmentSpread
+    ]
 
 # Selection Set
 
@@ -409,17 +430,20 @@ expect parseStr selectionSet "{ name }" == Ok [testField "name"]
 expect parseStr selectionSet "{ name email }" == Ok [testField "name", testField "email"]
 expect parseStr selectionSet "{ name\nemail }" == Ok [testField "name", testField "email"]
 expect parseStr selectionSet "{ name, email }" == Ok [testField "name", testField "email"]
+expect parseStr selectionSet "{ ... PostDetails }" == Ok [FragmentSpread "PostDetails"]
 expect
     parseStr
         selectionSet
         """
         {
+            ...UserDetails,
             fullName: name, 
               email
             phone
         }
         """
     == Ok [
+        FragmentSpread "UserDetails",
         testField "name" |> withAlias "fullName",
         testField "email",
         testField "phone",
@@ -701,6 +725,15 @@ objectField =
     |> skip (codeunit ':')
     |> skip ignored
     |> keep recursiveValue
+
+# Fragment Spread
+
+fragmentSpread : Parser RawStr Selection
+fragmentSpread = 
+    const FragmentSpread
+    |> skip (string "...")
+    |> skip ignored
+    |> keep fragmentName
 
 # Name
 
