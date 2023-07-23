@@ -337,8 +337,8 @@ expect
 
 Value : [
     Variable Str,
+    IntValue I32,
     # TODO:
-    # IntValue
     # FloatValue
     # StringValue
     # BooleanValue
@@ -352,15 +352,25 @@ value : Parser RawStr Value
 value =
     oneOf [
         variable,
+        intValue,
     ]
 
 expect parseStr value "$id" == Ok (Variable "id")
+expect parseStr value "123" == Ok (IntValue 123)
+expect parseStr value "-456" == Ok (IntValue -456)
 
 variable : Parser RawStr Value
 variable =
     const Variable
     |> skip (codeunit '$')
     |> keep name
+
+intValue : Parser RawStr Value
+intValue =
+    # TODO: Be more strict about leading zeroes
+    const \neg -> \num -> if Result.isOk neg then IntValue -num else IntValue num
+    |> keep (maybe (codeunit '-'))
+    |> keep ParserStr.positiveInt
 
 # Name
 
