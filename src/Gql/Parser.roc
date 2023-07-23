@@ -30,6 +30,7 @@ Definition : [
     Operation
         {
             type : OperationType,
+            name : Result Str [Nothing],
             # TODO: Variable definitions
             # TODO: Directives
             selectionSet : List Selection,
@@ -41,12 +42,14 @@ Definition : [
 
 operation : Parser RawStr Definition
 operation =
-    const \type -> \ss -> Operation { type, selectionSet: ss }
+    const \type -> \nam -> \ss -> Operation { type, name: nam, selectionSet: ss }
     |> keep (maybe opType |> withDefault Query)
+    |> skip ignored
+    |> keep (maybe name)
     |> skip ignored
     |> keep selectionSet
 
-OperationType :  [Query, Mutation, Subscription]
+OperationType : [Query, Mutation, Subscription]
 
 opType : Parser RawStr OperationType
 opType =
@@ -58,16 +61,54 @@ opType =
 
 expect
     parseStr operation "query { user { id } }"
-    == Ok (Operation { type: Query, selectionSet: [tf "user" |> ts [tf "id"]] })
+    == Ok
+        (
+            Operation {
+                type: Query,
+                name: Err Nothing,
+                selectionSet: [tf "user" |> ts [tf "id"]],
+            }
+        )
 expect
-    parseStr operation "mutation { logOut { success } }"
-    == Ok (Operation { type: Mutation, selectionSet: [tf "logOut" |> ts [tf "success"]] })
+    parseStr operation "query GetUser { user { id } }"
+    == Ok
+        (
+            Operation {
+                type: Query,
+                name: Ok "GetUser",
+                selectionSet: [tf "user" |> ts [tf "id"]],
+            }
+        )
+expect
+    parseStr operation "mutation LogOut { logOut { success } }"
+    == Ok
+        (
+            Operation {
+                type: Mutation,
+                name: Ok "LogOut",
+                selectionSet: [tf "logOut" |> ts [tf "success"]],
+            }
+        )
 expect
     parseStr operation "subscription { messages { id body } }"
-    == Ok (Operation { type: Subscription, selectionSet: [tf "messages" |> ts [tf "id", tf "body"]] })
+    == Ok
+        (
+            Operation {
+                type: Subscription,
+                name: Err Nothing,
+                selectionSet: [tf "messages" |> ts [tf "id", tf "body"]],
+            }
+        )
 expect
     parseStr operation "{ user { id } }"
-    == Ok (Operation { type: Query, selectionSet: [tf "user" |> ts [tf "id"]] })
+    == Ok
+        (
+            Operation {
+                type: Query,
+                name: Err Nothing,
+                selectionSet: [tf "user" |> ts [tf "id"]],
+            }
+        )
 
 # Selection
 
