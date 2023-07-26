@@ -1,4 +1,4 @@
-interface ParserStr
+interface Parser.Str
     exposes [
         RawStr,
         parseStr,
@@ -19,7 +19,7 @@ interface ParserStr
         strFromRaw,
     ]
     imports [
-        ParserCore.{
+        Parser.Core.{
             Parser,
             ParseResult,
             map,

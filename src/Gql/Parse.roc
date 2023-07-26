@@ -1,7 +1,7 @@
-interface Gql.Parser
+interface Gql.Parse
     exposes [document]
     imports [
-        ParserCore.{
+        Parser.Core.{
             Parser,
             map,
             map2,
@@ -17,7 +17,7 @@ interface Gql.Parser
             maybe,
             andThen,
         },
-        ParserStr.{
+        Parser.Str.{
             RawStr,
             parseStr,
             strFromRaw,
@@ -26,13 +26,22 @@ interface Gql.Parser
             oneOf,
             string,
         },
+        Gql.Document.{
+            Document,
+            Definition,
+            OperationType,
+            VariableDefinition,
+            Type,
+            NamedOrListType,
+            Selection,
+            Argument,
+            Value,
+        },
     ]
 
 # https://spec.graphql.org/October2021
 
 # Document
-
-Document : List Definition
 
 document : Parser RawStr Document
 document =
@@ -91,8 +100,8 @@ expect
                 ],
                 InlineFragment {
                     typeName: Err Nothing,
-                    selectionSet: [testField "sessionId"]
-                }
+                    selectionSet: [testField "sessionId"],
+                },
             ],
         },
         Operation {
@@ -121,40 +130,23 @@ expect
             selectionSet: [
                 testField "id",
                 testField "title",
-                testField "body" |> withSelection [
+                testField "body"
+                |> withSelection [
                     testField "__typename",
                     InlineFragment {
                         typeName: Ok "Text",
-                        selectionSet: [testField "text"]
+                        selectionSet: [testField "text"],
                     },
                     InlineFragment {
                         typeName: Ok "Image",
-                        selectionSet: [testField "imageUrl"]
-                    }
-                ]
+                        selectionSet: [testField "imageUrl"],
+                    },
+                ],
             ],
         },
     ]
 
 # Definition
-
-Definition : [
-    Operation
-        {
-            type : OperationType,
-            name : Result Str [Nothing],
-            variables : List VariableDefinition,
-            # TODO: Directives
-            selectionSet : List Selection,
-        },
-    Fragment
-        {
-            name : Str,
-            typeName : Str,
-            # TODO: Directives
-            selectionSet : List Selection,
-        },
-]
 
 definition : Parser RawStr Definition
 definition =
@@ -175,8 +167,6 @@ operationDefinition =
     |> keep (maybe variableDefinitions |> withDefault [])
     |> skip ignored
     |> keep selectionSet
-
-OperationType : [Query, Mutation, Subscription]
 
 opType : Parser RawStr OperationType
 opType =
@@ -256,13 +246,6 @@ expect
 
 # Variable Definition
 
-VariableDefinition : {
-    name : Str,
-    type : Type,
-    default : Result Value [Nothing],
-    # TODO: Directives
-}
-
 variableDefinitions : Parser RawStr (List VariableDefinition)
 variableDefinitions =
     const identity
@@ -311,7 +294,6 @@ variable =
     |> skip (codeunit '$')
     |> keep name
 
-
 defaultValue : Parser RawStr Value
 defaultValue =
     const identity
@@ -320,16 +302,6 @@ defaultValue =
     |> keep value
 
 # Type
-
-Type : [
-    Nullable NamedOrListType,
-    NonNull NamedOrListType,
-]
-
-NamedOrListType : [
-    Named Str,
-    ListT Type,
-]
 
 type : Parser RawStr Type
 type =
@@ -385,9 +357,8 @@ fragmentDefinition =
     |> skip ignored
     |> keep selectionSet
 
-
 typeCondition : Parser RawStr Str
-typeCondition  =
+typeCondition =
     const identity
     |> skip (string "on")
     |> skip ignored
@@ -426,24 +397,6 @@ expect parseStr fragmentName "UserDetails" == Ok "UserDetails"
 expect parseStr fragmentName "on" |> Result.isErr
 
 # Selection
-
-Selection : [
-    Field
-        {
-            field : Str,
-            alias : Result Str [Nothing],
-            arguments : List Argument,
-            # TODO: Directives
-            selectionSet : List Selection,
-        },
-    FragmentSpread Str,
-    InlineFragment
-        {
-            typeName : Result Str [Nothing],
-            # TODO: Directives
-            selectionSet : List Selection,
-        },
-]
 
 selection : Parser RawStr Selection
 selection =
@@ -494,9 +447,9 @@ expect
         InlineFragment {
             typeName: Ok "Admin",
             selectionSet: [
-                testField "permissions"
-            ]
-        }
+                testField "permissions",
+            ],
+        },
     ]
 expect parseStr selectionSet "" |> Result.isErr
 expect parseStr selectionSet "{name" |> Result.isErr
@@ -585,8 +538,6 @@ expect
 
 # Argument
 
-Argument : (Str, Value)
-
 arguments : Parser RawStr (List Argument)
 arguments =
     const identity
@@ -607,19 +558,6 @@ argument =
 
 # Value
 
-Value : [
-    Variable Str,
-    IntValue I32,
-    StringValue Str,
-    BooleanValue Bool,
-    NullValue,
-    EnumValue Str,
-    ListValue (List Value),
-    ObjectValue (List (Str, Value)),
-    # TODO:
-    # FloatValue
-]
-
 value : Parser RawStr Value
 value =
     oneOf [
@@ -631,6 +569,8 @@ value =
         enumValue,
         listValue,
         objectValue,
+        # TODO:
+        # floatValue,
     ]
 
 expect parseStr value "$id" == Ok (Variable "id")
@@ -677,7 +617,7 @@ intValue =
     # TODO: Be more strict about leading zeroes
     const \neg -> \num -> if Result.isOk neg then IntValue -num else IntValue num
     |> keep (maybe (codeunit '-'))
-    |> keep ParserStr.positiveInt
+    |> keep Parser.Str.positiveInt
 
 # Value: String
 
@@ -890,16 +830,16 @@ withDefault = \parser, def ->
 
 recursiveSelectionSet : Parser RawStr (List Selection)
 recursiveSelectionSet =
-    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial selectionSet input)
+    Parser.Core.buildPrimitiveParser (\input -> Parser.Core.parsePartial selectionSet input)
 
 recursiveInlineFragment : Parser RawStr Selection
 recursiveInlineFragment =
-    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial inlineFragment input)
+    Parser.Core.buildPrimitiveParser (\input -> Parser.Core.parsePartial inlineFragment input)
 
 recursiveValue : Parser RawStr Value
 recursiveValue =
-    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial value input)
+    Parser.Core.buildPrimitiveParser (\input -> Parser.Core.parsePartial value input)
 
 recursiveType : Parser RawStr Type
 recursiveType =
-    ParserCore.buildPrimitiveParser (\input -> ParserCore.parsePartial type input)
+    Parser.Core.buildPrimitiveParser (\input -> Parser.Core.parsePartial type input)
