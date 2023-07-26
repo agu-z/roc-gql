@@ -9,20 +9,14 @@ interface Gql.Document
         Selection,
         Argument,
         Value,
+        findOperation,
     ]
     imports []
 
 Document : List Definition
 
 Definition : [
-    Operation
-        {
-            type : OperationType,
-            name : Result Str [Nothing],
-            variables : List VariableDefinition,
-            # TODO: Directives
-            selectionSet : List Selection,
-        },
+    Operation Operation,
     Fragment
         {
             name : Str,
@@ -31,6 +25,14 @@ Definition : [
             selectionSet : List Selection,
         },
 ]
+
+Operation : {
+    type : OperationType,
+    name : Result Str [Nothing],
+    variables : List VariableDefinition,
+    # TODO: Directives
+    selectionSet : List Selection,
+}
 
 OperationType : [Query, Mutation, Subscription]
 
@@ -84,3 +86,28 @@ Value : [
     # FloatValue
 ]
 
+findOperation : Document, [First, ByName Str] -> Result Operation [OperationNotFound]
+findOperation = \doc, rule ->
+    state, def <- List.walkUntil doc (Err OperationNotFound)
+
+    when def is
+        Operation op ->
+            when (op.name, rule) is
+                (_, First) ->
+                    Break (Ok op)
+
+                (Ok thisName, ByName wantedName) if thisName == wantedName ->
+                    Break (Ok op)
+
+                _ ->
+                    Continue state
+
+        _ ->
+            Continue state
+
+expect findOperation [] First == Err OperationNotFound
+expect findOperation [Operation testOp] (ByName "GetUser") == Ok testOp
+expect findOperation [Operation testOp] First == Ok testOp
+expect findOperation [Operation testOp] (ByName "getUser") == Err OperationNotFound
+
+testOp = { type: Query, name: Ok "GetUser", variables: [], selectionSet: [] }

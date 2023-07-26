@@ -1,5 +1,5 @@
 interface Gql.Parse
-    exposes [document]
+    exposes [parseDocument]
     imports [
         Parser.Core.{
             Parser,
@@ -40,6 +40,10 @@ interface Gql.Parse
     ]
 
 # https://spec.graphql.org/October2021
+
+parseDocument : Str -> Result Document [ParsingFailure Str, ParsingIncomplete Str]
+parseDocument = \input ->
+    parseStr document input
 
 # Document
 
