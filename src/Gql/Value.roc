@@ -4,7 +4,7 @@ interface Gql.Value
 
 Value : [
     String Str,
-    Integer I32,
+    Int I32,
     Null,
     Object (List (Str, Value)),
 ]

@@ -118,9 +118,9 @@ expect
             selectionSet: [
                 testField "posts"
                 |> withArgs [
-                    ("active", Variable "active"),
-                    ("before", StringValue "2021"),
-                    ("after", Variable "after"),
+                    ("active", Var "active"),
+                    ("before", String "2021"),
+                    ("after", Var "after"),
                 ]
                 |> withSelection [
                     FragmentSpread "PostDetails",
@@ -208,7 +208,7 @@ expect
                 selectionSet: [
                     testField "user"
                     |> withArgs [
-                        ("id", Variable "id"),
+                        ("id", Var "id"),
                     ]
                     |> withSelection [testField "id"],
                 ],
@@ -282,14 +282,14 @@ expect
     == Ok {
         name: "active",
         type: NonNull (Named "Boolean"),
-        default: Ok (BooleanValue Bool.true),
+        default: Ok (Boolean Bool.true),
     }
 expect
     parseStr variableDefinition "$ids :[ID!]= [\"1\", \"2\"]"
     == Ok {
         name: "ids",
         type: Nullable (ListT (NonNull (Named "ID"))),
-        default: Ok (ListValue [StringValue "1", StringValue "2"]),
+        default: Ok (List [String "1", String "2"]),
     }
 
 variable : Parser RawStr Str
@@ -500,14 +500,14 @@ expect parseStr field "name" == Ok (testField "name")
 expect parseStr field "fullName:name" == Ok (testField "name" |> withAlias "fullName")
 expect parseStr field "fullName: name" == Ok (testField "name" |> withAlias "fullName")
 expect parseStr field "fullName : name" == Ok (testField "name" |> withAlias "fullName")
-expect parseStr field "post(id: 1)" == Ok (testField "post" |> withArgs [("id", IntValue 1)])
+expect parseStr field "post(id: 1)" == Ok (testField "post" |> withArgs [("id", Int 1)])
 expect
     parseStr field "firstPost: post(id: 1)"
     == Ok
         (
             testField "post"
             |> withAlias "firstPost"
-            |> withArgs [("id", IntValue 1)]
+            |> withArgs [("id", Int 1)]
         )
 expect
     parseStr field "user { name, age }"
@@ -529,8 +529,8 @@ expect
                 testField "id",
                 testField "posts"
                 |> withArgs [
-                    ("status", EnumValue "ACTIVE"),
-                    ("after", StringValue "2023-10-04"),
+                    ("status", Enum "ACTIVE"),
+                    ("after", String "2023-10-04"),
                 ]
                 |> withSelection [
                     testField "id",
@@ -577,39 +577,39 @@ value =
         # floatValue,
     ]
 
-expect parseStr value "$id" == Ok (Variable "id")
-expect parseStr value "123" == Ok (IntValue 123)
-expect parseStr value "-456" == Ok (IntValue -456)
-expect parseStr value "\"hello world\"" == Ok (StringValue "hello world")
-expect parseStr value "\"hello\\nworld\"" == Ok (StringValue "hello\nworld")
-expect parseStr value "\"my name is \\\"Agus\\\"\"" == Ok (StringValue "my name is \"Agus\"")
-expect parseStr value "true" == Ok (BooleanValue Bool.true)
-expect parseStr value "false" == Ok (BooleanValue Bool.false)
-expect parseStr value "null" == Ok NullValue
-expect parseStr value "ACTIVE" == Ok (EnumValue "ACTIVE")
-expect parseStr value "suspended" == Ok (EnumValue "suspended")
-expect parseStr value "[]" == Ok (ListValue [])
-expect parseStr value "[ $id1, $id2 ]" == Ok (ListValue [Variable "id1", Variable "id2"])
-expect parseStr value "[42, 123, 234]" == Ok (ListValue [IntValue 42, IntValue 123, IntValue 234])
-expect parseStr value "[\"john\", \"Mike\"]" == Ok (ListValue [StringValue "john", StringValue "Mike"])
-expect parseStr value "{}" == Ok (ObjectValue [])
+expect parseStr value "$id" == Ok (Var "id")
+expect parseStr value "123" == Ok (Int 123)
+expect parseStr value "-456" == Ok (Int -456)
+expect parseStr value "\"hello world\"" == Ok (String "hello world")
+expect parseStr value "\"hello\\nworld\"" == Ok (String "hello\nworld")
+expect parseStr value "\"my name is \\\"Agus\\\"\"" == Ok (String "my name is \"Agus\"")
+expect parseStr value "true" == Ok (Boolean Bool.true)
+expect parseStr value "false" == Ok (Boolean Bool.false)
+expect parseStr value "null" == Ok Null
+expect parseStr value "ACTIVE" == Ok (Enum "ACTIVE")
+expect parseStr value "suspended" == Ok (Enum "suspended")
+expect parseStr value "[]" == Ok (List [])
+expect parseStr value "[ $id1, $id2 ]" == Ok (List [Var "id1", Var "id2"])
+expect parseStr value "[42, 123, 234]" == Ok (List [Int 42, Int 123, Int 234])
+expect parseStr value "[\"john\", \"Mike\"]" == Ok (List [String "john", String "Mike"])
+expect parseStr value "{}" == Ok (Object [])
 expect
     parseStr value "{ id: $id name: \"John\", age :56, status: ACTIVE }"
     == Ok
         (
-            ObjectValue [
-                ("id", Variable "id"),
-                ("name", StringValue "John"),
-                ("age", IntValue 56),
-                ("status", EnumValue "ACTIVE"),
+            Object [
+                ("id", Var "id"),
+                ("name", String "John"),
+                ("age", Int 56),
+                ("status", Enum "ACTIVE"),
             ]
         )
 
-# Value: Variable
+# Value: Var
 
 variableValue : Parser RawStr Value
 variableValue =
-    const Variable
+    const Var
     |> skip (codeunit '$')
     |> skip ignored
     |> keep name
@@ -619,7 +619,7 @@ variableValue =
 intValue : Parser RawStr Value
 intValue =
     # TODO: Be more strict about leading zeroes
-    const \neg -> \num -> if Result.isOk neg then IntValue -num else IntValue num
+    const \neg -> \num -> if Result.isOk neg then Int -num else Int num
     |> keep (maybe (codeunit '-'))
     |> keep Parser.Str.positiveInt
 
@@ -635,7 +635,7 @@ stringValue =
 
     when Str.fromUtf8 chars is
         Ok str ->
-            const (StringValue str)
+            const (String str)
 
         Err (BadUtf8 _ _) ->
             fail "String value is not valid UTF8"
@@ -672,28 +672,28 @@ escapedChar =
 booleanValue : Parser RawStr Value
 booleanValue =
     oneOf [
-        string "true" |> map \_ -> BooleanValue Bool.true,
-        string "false" |> map \_ -> BooleanValue Bool.false,
+        string "true" |> map \_ -> Boolean Bool.true,
+        string "false" |> map \_ -> Boolean Bool.false,
     ]
 
 # Value: Null
 
 nullValue : Parser RawStr Value
 nullValue =
-    string "null" |> map \_ -> NullValue
+    string "null" |> map \_ -> Null
 
 # Value: Enum
 
 enumValue : Parser RawStr Value
 enumValue =
     # No need to check for true/false/null because it would never get here
-    name |> map EnumValue
+    name |> map Enum
 
 # Value: List
 
 listValue : Parser RawStr Value
 listValue =
-    const ListValue
+    const List
     |> skip (codeunit '[')
     |> skip ignored
     |> keep (recursiveValue |> sepBy ignored)
@@ -704,7 +704,7 @@ listValue =
 
 objectValue : Parser RawStr Value
 objectValue =
-    const ObjectValue
+    const Object
     |> skip (codeunit '{')
     |> skip ignored
     |> keep (objectField |> sepBy ignored)

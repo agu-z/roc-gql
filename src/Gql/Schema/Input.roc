@@ -31,7 +31,7 @@ Error : {
 
 TypeName : [
     String,
-    Integer,
+    Int,
 ]
 
 Argument : {
@@ -151,13 +151,13 @@ int : Type I32
 int =
     decoder = \value ->
         when value is
-            Integer integer ->
+            Int integer ->
                 Ok integer
 
             _ ->
                 Err value
 
-    { type: Integer, decoder }
+    { type: Int, decoder }
 
 # Test pipeline
 
@@ -170,33 +170,33 @@ testInput =
 expect
     values = Dict.fromList [
         ("name", String "Pencil"),
-        ("stock", Integer 3000),
+        ("stock", Int 3000),
     ]
 
     decode values testInput == Ok { name: "Pencil", stock: 3000 }
 
 expect
     values = Dict.fromList [
-        ("name", Integer 1),
-        ("stock", Integer 3000),
+        ("name", Int 1),
+        ("stock", Int 3000),
     ]
 
     decode values testInput
     == Err {
         argument: "name",
-        problem: InvalidValue String (Integer 1),
+        problem: InvalidValue String (Int 1),
     }
 
 expect
     values = Dict.fromList [
-        ("name", Integer 1),
+        ("name", Int 1),
     ]
 
     decode values testInput == Err { argument: "stock", problem: Missing }
 
 expect
     values = Dict.fromList [
-        ("name", Integer 1),
+        ("name", Int 1),
         ("stock", Null),
     ]
 
@@ -208,7 +208,7 @@ optionalInput =
     }
 
 expect
-    values = Dict.fromList [("stock", Integer 123)]
+    values = Dict.fromList [("stock", Int 123)]
 
     decode values optionalInput == Ok { stock: Ok 123 }
 
@@ -228,5 +228,5 @@ expect
     decode values optionalInput
     == Err {
         argument: "stock",
-        problem: InvalidValue Integer (String "123"),
+        problem: InvalidValue Int (String "123"),
     }

@@ -74,14 +74,14 @@ Selection : [
 Argument : (Str, Value)
 
 Value : [
-    Variable Str,
-    IntValue I32,
-    StringValue Str,
-    BooleanValue Bool,
-    NullValue,
-    EnumValue Str,
-    ListValue (List Value),
-    ObjectValue (List (Str, Value)),
+    Var Str,
+    Int I32,
+    String Str,
+    Boolean Bool,
+    Null,
+    Enum Str,
+    List (List Value),
+    Object (List (Str, Value)),
     # TODO:
     # FloatValue
 ]
