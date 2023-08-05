@@ -15,7 +15,7 @@ interface Gql.Schema
     imports [
         Gql.Document.{ Document },
         Gql.Parse.{ parseDocument },
-        Gql.Input.{ Input, Argument, const, optional },
+        Gql.Input.{ Input, Argument, const, optional, required },
         Gql.Value.{ Value },
     ]
 
@@ -31,11 +31,16 @@ Object : {
     fields : Dict Str Field,
 }
 
-object : Str -> Object
-object = \name ->
-    { name, fields: Dict.withCapacity 5 }
+object : Str, List Field -> Object
+object = \name, fields -> {
+    name,
+    fields: fields
+    |> List.map \f -> (f.name, f)
+    |> Dict.fromList,
+}
 
 Field : {
+    name : Str,
     type : TypeName,
     arguments : List Argument,
     resolve : Dict Str Value -> Result Value Gql.Input.Error,
@@ -51,28 +56,26 @@ Type a : {
     encode : a -> Value,
 }
 
-field : Object,
+field :
     Str,
     Type output,
     {
         takes : Input input,
         resolve : input -> output,
     }
-    -> Object
-field = \obj, name, returns, { takes, resolve } ->
-    newField = {
-        type: returns.type,
-        arguments: Gql.Input.arguments takes,
-        resolve: \inputValue ->
-            inputValue
-            |> Gql.Input.decode takes
-            |> Result.map \input ->
-                input
-                |> resolve
-                |> returns.encode,
-    }
-
-    { obj & fields: obj.fields |> Dict.insert name newField }
+    -> Field
+field = \name, returns, { takes, resolve } -> {
+    name,
+    type: returns.type,
+    arguments: Gql.Input.arguments takes,
+    resolve: \inputValue ->
+        inputValue
+        |> Gql.Input.decode takes
+        |> Result.map \input ->
+            input
+            |> resolve
+            |> returns.encode,
+}
 
 string : Type Str
 string = {
@@ -145,14 +148,22 @@ execute = \params ->
 expect
     query : Object
     query =
-        object "Query"
-        |> field "greet" string {
-            takes: const {
-                name: <- optional "name" Gql.Input.string,
+        object "Query" [
+            field "greet" string {
+                takes: const {
+                    name: <- optional "name" Gql.Input.string,
+                },
+                resolve: \{ name } ->
+                    "Hi, \(Result.withDefault name "friend")!",
             },
-            resolve: \{ name } ->
-                "Hi, \(Result.withDefault name "friend")!",
-        }
+            field "plus" int {
+                takes: const {
+                    a: <- required "a" Gql.Input.int,
+                    b: <- required "b" Gql.Input.int,
+                },
+                resolve: \{ a, b } -> a + b,
+            },
+        ]
 
     mySchema = schema { query }
 
@@ -163,6 +174,7 @@ expect
                 query {
                     greet
                     hiMatt: greet(name: "Matt")
+                    plus(a: 2, b: 3)
                 }
                 """
             |> Result.try
@@ -180,6 +192,7 @@ expect
             Object [
                 ("greet", String "Hi, friend!"),
                 ("hiMatt", String "Hi, Matt!"),
+                ("plus", Int 5),
             ]
         )
 
