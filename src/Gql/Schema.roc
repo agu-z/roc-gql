@@ -15,7 +15,7 @@ interface Gql.Schema
     imports [
         Gql.Document.{ Document },
         Gql.Parse.{ parseDocument },
-        Gql.Schema.Input.{ Input, Argument, const, optional },
+        Gql.Input.{ Input, Argument, const, optional },
         Gql.Value.{ Value },
     ]
 
@@ -38,7 +38,7 @@ object = \name ->
 Field : {
     type : TypeName,
     arguments : List Argument,
-    resolve : Dict Str Value -> Result Value Gql.Schema.Input.Error,
+    resolve : Dict Str Value -> Result Value Gql.Input.Error,
 }
 
 TypeName : [
@@ -62,10 +62,10 @@ field : Object,
 field = \obj, name, returns, { takes, resolve } ->
     newField = {
         type: returns.type,
-        arguments: Gql.Schema.Input.arguments takes,
+        arguments: Gql.Input.arguments takes,
         resolve: \inputValue ->
             inputValue
-            |> Gql.Schema.Input.decode takes
+            |> Gql.Input.decode takes
             |> Result.map \input ->
                 input
                 |> resolve
@@ -97,7 +97,7 @@ execute :
         Value
         [
             FieldNotFound Str Str,
-            InputErr Gql.Schema.Input.Error,
+            InputErr Gql.Input.Error,
             OperationNotFound,
             VarNotFound Str,
         ]
@@ -148,7 +148,7 @@ expect
         object "Query"
         |> field "greet" string {
             takes: const {
-                name: <- optional "name" Gql.Schema.Input.string,
+                name: <- optional "name" Gql.Input.string,
             },
             resolve: \{ name } ->
                 "Hi, \(Result.withDefault name "friend")!",

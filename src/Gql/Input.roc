@@ -1,4 +1,4 @@
-interface Gql.Schema.Input
+interface Gql.Input
     exposes [
         Argument,
         Input,
