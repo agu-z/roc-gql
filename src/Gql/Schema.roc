@@ -1,47 +1,89 @@
 interface Gql.Schema
-    exposes []
+    exposes [
+        Schema,
+        Type,
+        Field,
+        TypeName,
+        Object,
+        schema,
+        object,
+        field,
+        int,
+        string,
+        execute,
+    ]
     imports [
         Gql.Document.{ Document },
         Gql.Parse.{ parseDocument },
+        Gql.Schema.Input.{ Input, Argument, const, optional },
+        Gql.Value.{ Value },
     ]
 
 Schema : {
-    query : Type,
+    query : Object,
 }
 
-schema : { query : Type } -> Schema
+schema : { query : Object } -> Schema
 schema = \{ query } -> { query }
 
-Type : {
+Object : {
     name : Str,
     fields : Dict Str Field,
 }
 
-type : Str -> Type
-type = \name ->
+object : Str -> Object
+object = \name ->
     { name, fields: Dict.withCapacity 5 }
 
 Field : {
-    type : [String],
-    resolve : {} -> Value,
+    type : TypeName,
+    arguments : List Argument,
+    resolve : Dict Str Value -> Result Value Gql.Schema.Input.Error,
 }
 
-Value : [
-    String Str,
-    Object (List (Str, Value)),
+TypeName : [
+    String,
+    Int,
 ]
 
-field = \obj, name, typeRef, resolve ->
+Type a : {
+    type : TypeName,
+    encode : a -> Value,
+}
+
+field : Object,
+    Str,
+    Type output,
+    {
+        takes : Input input,
+        resolve : input -> output,
+    }
+    -> Object
+field = \obj, name, returns, { takes, resolve } ->
     newField = {
-        type: typeRef.type,
-        resolve: \input -> typeRef.encode (resolve input),
+        type: returns.type,
+        arguments: Gql.Schema.Input.arguments takes,
+        resolve: \inputValue ->
+            inputValue
+            |> Gql.Schema.Input.decode takes
+            |> Result.map \input ->
+                input
+                |> resolve
+                |> returns.encode,
     }
 
     { obj & fields: obj.fields |> Dict.insert name newField }
 
+string : Type Str
 string = {
     type: String,
     encode: String,
+}
+
+int : Type I32
+int = {
+    type: Int,
+    encode: Int,
 }
 
 execute :
@@ -49,8 +91,16 @@ execute :
         schema : Schema,
         document : Document,
         operation : [First, ByName Str],
+        variables : Dict Str Value,
     }
-    -> Result _ _
+    -> Result
+        Value
+        [
+            FieldNotFound Str Str,
+            InputErr Gql.Schema.Input.Error,
+            OperationNotFound,
+            VarNotFound Str,
+        ]
 execute = \params ->
     operation <-
         params.document
@@ -67,13 +117,24 @@ execute = \params ->
                     obj.fields
                     |> Dict.get opField.field
                     |> Result.mapErr \KeyNotFound -> FieldNotFound obj.name opField.field
-                    |> Result.map
+                    |> Result.try
 
                 outName =
                     opField.alias
                     |> Result.withDefault opField.field
 
-                value = schemaField.resolve {}
+                argsDict <-
+                    opField.arguments
+                    |> List.mapTry \(key, docValue) ->
+                        docValue
+                        |> Gql.Value.fromDocument params.variables
+                        |> Result.map \value -> (key, value)
+                    |> Result.map Dict.fromList
+                    |> Result.try
+
+                value <- schemaField.resolve argsDict
+                    |> Result.mapErr InputErr
+                    |> Result.map
 
                 (outName, value)
 
@@ -82,22 +143,43 @@ execute = \params ->
     |> Result.map Object
 
 expect
+    query : Object
     query =
-        type "Query"
-        |> field "userName" string \_ -> "agu-z"
+        object "Query"
+        |> field "greet" string {
+            takes: const {
+                name: <- optional "name" Gql.Schema.Input.string,
+            },
+            resolve: \{ name } ->
+                "Hi, \(Result.withDefault name "friend")!",
+        }
 
     mySchema = schema { query }
 
     result =
         document <-
-            parseDocument "query GetUserName { userName }"
+            parseDocument
+                """
+                query {
+                    greet
+                    hiMatt: greet(name: "Matt")
+                }
+                """
             |> Result.try
 
         execute {
             schema: mySchema,
             document,
-            operation: ByName "GetUserName",
+            operation: First,
+            variables: Dict.empty {},
         }
 
-    result == Ok (Object [("userName", String "agu-z")])
+    result
+    == Ok
+        (
+            Object [
+                ("greet", String "Hi, friend!"),
+                ("hiMatt", String "Hi, Matt!"),
+            ]
+        )
 

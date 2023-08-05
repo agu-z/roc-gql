@@ -3,12 +3,13 @@ interface Gql.Schema.Input
         Argument,
         Input,
         Type,
+        Error,
         arguments,
         decode,
         const,
         required,
         optional,
-        str,
+        string,
         int,
     ]
     imports [
@@ -136,12 +137,12 @@ decode = \argValues, @Input input ->
 
 # Types
 
-str : Type Str
-str =
+string : Type Str
+string =
     decoder = \value ->
         when value is
-            String string ->
-                Ok string
+            String v ->
+                Ok v
 
             _ ->
                 Err value
@@ -151,8 +152,8 @@ int : Type I32
 int =
     decoder = \value ->
         when value is
-            Int integer ->
-                Ok integer
+            Int v ->
+                Ok v
 
             _ ->
                 Err value
@@ -163,7 +164,7 @@ int =
 
 testInput =
     const {
-        name: <- required "name" str,
+        name: <- required "name" string,
         stock: <- required "stock" int,
     }
 
