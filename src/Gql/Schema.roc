@@ -171,9 +171,9 @@ expect
         document <-
             parseDocument
                 """
-                query {
+                query Test($name: String) {
                     greet
-                    hiMatt: greet(name: "Matt")
+                    greetWithName: greet(name: $name)
                     plus(a: 2, b: 3)
                 }
                 """
@@ -183,7 +183,7 @@ expect
             schema: mySchema,
             document,
             operation: First,
-            variables: Dict.empty {},
+            variables: Dict.fromList [("name", String "Matt")],
         }
 
     result
@@ -191,7 +191,7 @@ expect
         (
             Object [
                 ("greet", String "Hi, friend!"),
-                ("hiMatt", String "Hi, Matt!"),
+                ("greetWithName", String "Hi, Matt!"),
                 ("plus", Int 5),
             ]
         )
