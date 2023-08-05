@@ -112,6 +112,10 @@ execute = \params ->
 
     obj = params.schema.query
 
+    # TODO: Err if var is not used
+    # TODO: Err if argument used undefined var
+    # TODO: Err if var type doesn't match argument type
+
     operation.selectionSet
     |> List.mapTry \selection ->
         when selection is
