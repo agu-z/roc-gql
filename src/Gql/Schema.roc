@@ -49,6 +49,7 @@ Field : {
 TypeName : [
     String,
     Int,
+    List TypeName,
 ]
 
 Type a : {
@@ -87,6 +88,15 @@ int : Type I32
 int = {
     type: Int,
     encode: Int,
+}
+
+listOf : Type a -> Type (List a)
+listOf = \itemType -> {
+    type: List itemType.type,
+    encode: \list ->
+        list
+        |> List.map itemType.encode
+        |> List,
 }
 
 execute :
@@ -200,3 +210,50 @@ expect
             ]
         )
 
+expect
+    query : Object
+    query =
+        object "Query" [
+            field "productNames" (listOf string) {
+                takes: const {},
+                resolve: \{} -> [
+                    "Pencil",
+                    "Notebook",
+                    "Ruler",
+                ],
+            },
+        ]
+
+    mySchema = schema { query }
+
+    result =
+        document <-
+            parseDocument
+                """
+                query {
+                    productNames
+                }
+                """
+            |> Result.try
+
+        execute {
+            schema: mySchema,
+            document,
+            operation: First,
+            variables: Dict.empty {},
+        }
+
+    result
+    == Ok
+        (
+            Object [
+                (
+                    "productNames",
+                    List [
+                        String "Pencil",
+                        String "Notebook",
+                        String "Ruler",
+                    ],
+                ),
+            ]
+        )
