@@ -48,6 +48,7 @@ TypeName : [
     Int,
     List TypeName,
     Ref Str,
+    Nullable TypeName,
 ]
 
 Type a : {
@@ -94,6 +95,15 @@ listOf = \itemType -> {
         list
         |> List.mapTry \item -> itemType.resolve item selection vars
         |> Result.map List,
+}
+
+nullable : Type a -> Type (Result a [Nothing])
+nullable = \itemType -> {
+    type: Nullable itemType.type,
+    resolve: \value, selection, vars ->
+        value
+        |> Result.map \item -> itemType.resolve item selection vars
+        |> Result.withDefault (Ok Null),
 }
 
 ref : Object a -> Type a
@@ -221,9 +231,9 @@ expect
                 resolve: \{}, {} -> {
                     id: 1,
                     products: [
-                        { id: 1, name: "Pencil", stock: 30 },
-                        { id: 2, name: "Notebook", stock: 23 },
-                        { id: 3, name: "Ruler", stock: 15 },
+                        { id: 1, name: "Pencil", description: Ok "To write stuff", stock: 30 },
+                        { id: 2, name: "Notebook", description: Err Nothing, stock: 23 },
+                        { id: 3, name: "Ruler", description: Err Nothing, stock: 15 },
                     ],
                 },
             },
@@ -239,6 +249,7 @@ expect
         object "Product" [
             field "id" int { takes: const {}, resolve: \p, _ -> p.id },
             field "name" string { takes: const {}, resolve: \p, _ -> p.name },
+            field "description" (nullable string) { takes: const {}, resolve: \p, _ -> p.description },
             field "stock" int { takes: const {}, resolve: \p, _ -> p.stock },
         ]
 
@@ -252,6 +263,7 @@ expect
                         products {
                             id
                             name
+                            description
                             stock
                         }
                     }
@@ -272,16 +284,19 @@ expect
             Object [
                 ("id", Int 1),
                 ("name", String "Pencil"),
+                ("description", String "To write stuff"),
                 ("stock", Int 30),
             ],
             Object [
                 ("id", Int 2),
                 ("name", String "Notebook"),
+                ("description", Null),
                 ("stock", Int 23),
             ],
             Object [
                 ("id", Int 3),
                 ("name", String "Ruler"),
+                ("description", Null),
                 ("stock", Int 15),
             ],
         ]
