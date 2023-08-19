@@ -148,6 +148,7 @@ expect
                 """
                 query {
                     lastOrder {
+                        __typename
                         id
                         status
                         products {
@@ -195,6 +196,7 @@ expect
         (
             "lastOrder",
             Object [
+                ("__typename", String "Order"),
                 ("id", Int 1),
                 ("status", Enum "PLACED"),
                 ("products", expectedProducts),

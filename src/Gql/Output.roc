@@ -124,29 +124,32 @@ resolveObject = \obj, a, selectionSet, vars ->
     |> List.mapTry \selection ->
         when selection is
             Field opField ->
-                schemaField <-
-                    obj.fields
-                    |> Dict.get opField.field
-                    |> Result.mapErr \KeyNotFound -> FieldNotFound obj.name opField.field
-                    |> Result.try
-
                 outName =
                     opField.alias
                     |> Result.withDefault opField.field
 
-                argsDict <-
-                    opField.arguments
-                    |> List.mapTry \(key, docValue) ->
-                        docValue
-                        |> Gql.Value.fromDocument vars
-                        |> Result.map \value -> (key, value)
-                    |> Result.map Dict.fromList
-                    |> Result.try
+                if opField.field == "__typename" then
+                    Ok (outName, String obj.name)
+                else
+                    schemaField <-
+                        obj.fields
+                        |> Dict.get opField.field
+                        |> Result.mapErr \KeyNotFound -> FieldNotFound obj.name opField.field
+                        |> Result.try
 
-                value <- schemaField.resolve a argsDict opField.selectionSet vars
-                    |> Result.map
+                    argsDict <-
+                        opField.arguments
+                        |> List.mapTry \(key, docValue) ->
+                            docValue
+                            |> Gql.Value.fromDocument vars
+                            |> Result.map \value -> (key, value)
+                        |> Result.map Dict.fromList
+                        |> Result.try
 
-                (outName, value)
+                    value <- schemaField.resolve a argsDict opField.selectionSet vars
+                        |> Result.map
+
+                    (outName, value)
 
             _ ->
                 crash "todo"
