@@ -1,150 +1,24 @@
 interface Gql.Schema
-    exposes [
-        Type,
-        Field,
-        TypeName,
-        Object,
-        object,
-        field,
-        int,
-        string,
-        execute,
-    ]
+    exposes [execute]
     imports [
         Gql.Document.{ Document, Selection },
         Gql.Parse.{ parseDocument },
-        Gql.Input.{ Input, Argument, const, optional, required },
         Gql.Value.{ Value },
+        Gql.Output.{
+            ResolveErr,
+            Object,
+            string,
+            int,
+            listOf,
+            nullable,
+            ref,
+            object,
+            field,
+            resolveObject,
+        },
+        Gql.Input.{ const, required, optional },
+        Gql.Enum,
     ]
-
-Object a : {
-    name : Str,
-    fields : Dict Str (Field a),
-}
-
-object : Str, List (Field a) -> Object a
-object = \name, fields -> {
-    name,
-    fields: fields
-    |> List.map \f -> (f.name, f)
-    |> Dict.fromList,
-}
-
-Field a : {
-    name : Str,
-    type : TypeName,
-    arguments : List Argument,
-    resolve : a, Dict Str Value, List Selection, Dict Str Value -> Result Value ResolveErr,
-}
-
-ResolveErr : [
-    FieldNotFound Str Str,
-    InputErr Gql.Input.Error,
-    VarNotFound Str,
-]
-
-TypeName : [
-    String,
-    Int,
-    List TypeName,
-    Ref Str,
-    Nullable TypeName,
-]
-
-Type a : {
-    type : TypeName,
-    resolve : a, List Selection, Dict Str Value -> Result Value ResolveErr,
-}
-
-field :
-    Str,
-    Type output,
-    {
-        takes : Input input,
-        resolve : a, input -> output,
-    }
-    -> Field a
-field = \name, returns, { takes, resolve } -> {
-    name,
-    type: returns.type,
-    arguments: Gql.Input.arguments takes,
-    resolve: \obj, args, selection, vars ->
-        args
-        |> Gql.Input.decode takes
-        |> Result.mapErr InputErr
-        |> Result.try \input ->
-            returns.resolve (resolve obj input) selection vars,
-}
-
-string : Type Str
-string = {
-    type: String,
-    resolve: \a, _, _ -> Ok (String a),
-}
-
-int : Type I32
-int = {
-    type: Int,
-    resolve: \a, _, _ -> Ok (Int a),
-}
-
-listOf : Type a -> Type (List a)
-listOf = \itemType -> {
-    type: List itemType.type,
-    resolve: \list, selection, vars ->
-        list
-        |> List.mapTry \item -> itemType.resolve item selection vars
-        |> Result.map List,
-}
-
-nullable : Type a -> Type (Result a [Nothing])
-nullable = \itemType -> {
-    type: Nullable itemType.type,
-    resolve: \value, selection, vars ->
-        value
-        |> Result.map \item -> itemType.resolve item selection vars
-        |> Result.withDefault (Ok Null),
-}
-
-ref : Object a -> Type a
-ref = \obj -> {
-    type: Ref obj.name,
-    resolve: \value, selection, vars -> resolveObject obj value selection vars,
-}
-
-resolveObject : Object a, a, List Selection, Dict Str Value -> Result Value ResolveErr
-resolveObject = \obj, a, selectionSet, vars ->
-    selectionSet
-    |> List.mapTry \selection ->
-        when selection is
-            Field opField ->
-                schemaField <-
-                    obj.fields
-                    |> Dict.get opField.field
-                    |> Result.mapErr \KeyNotFound -> FieldNotFound obj.name opField.field
-                    |> Result.try
-
-                outName =
-                    opField.alias
-                    |> Result.withDefault opField.field
-
-                argsDict <-
-                    opField.arguments
-                    |> List.mapTry \(key, docValue) ->
-                        docValue
-                        |> Gql.Value.fromDocument vars
-                        |> Result.map \value -> (key, value)
-                    |> Result.map Dict.fromList
-                    |> Result.try
-
-                value <- schemaField.resolve a argsDict opField.selectionSet vars
-                    |> Result.map
-
-                (outName, value)
-
-            _ ->
-                crash "todo"
-    |> Result.map Object
 
 execute :
     {
@@ -230,6 +104,7 @@ expect
                 takes: const {},
                 resolve: \{}, {} -> {
                     id: 1,
+                    status: Placed,
                     products: [
                         { id: 1, name: "Pencil", description: Ok "To write stuff", stock: 30 },
                         { id: 2, name: "Notebook", description: Err Nothing, stock: 23 },
@@ -242,8 +117,22 @@ expect
     order =
         object "Order" [
             field "id" int { takes: const {}, resolve: \o, _ -> o.id },
+            field "status" orderStatus { takes: const {}, resolve: \o, _ -> o.status },
             field "products" (listOf (ref product)) { takes: const {}, resolve: \o, _ -> o.products },
         ]
+
+    orderStatus =
+        Gql.Enum.new "OrderStatus" {
+            placed: <- Gql.Enum.case "PLACED",
+            delivered: <- Gql.Enum.case "DELIVERED",
+        }
+        |> Gql.Enum.type \value ->
+            when value is
+                Placed ->
+                    .placed
+
+                Delivered ->
+                    .delivered
 
     product =
         object "Product" [
@@ -260,6 +149,7 @@ expect
                 query {
                     lastOrder {
                         id
+                        status
                         products {
                             id
                             name
@@ -306,6 +196,7 @@ expect
             "lastOrder",
             Object [
                 ("id", Int 1),
+                ("status", Enum "PLACED"),
                 ("products", expectedProducts),
             ],
         ),
