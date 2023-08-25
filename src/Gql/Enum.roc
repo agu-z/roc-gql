@@ -35,11 +35,11 @@ case = \name ->
             value: enum.value (@Case name),
         }
 
-type : Enum cases, (value -> (cases -> Case)) -> Type value
-type = \@Enum enum, encode -> {
-    type: Enum enum.name enum.values,
-    resolve: \value, _, _ ->
-        (@Case caseStr) = (encode value) enum.value
-        Ok (Enum caseStr),
-}
+type : Enum cases, (value -> (cases -> Case)) -> Type value *
+type = \@Enum enum, encode -> \_ -> {
+        type: Enum enum.name enum.values,
+        resolve: \value, _, _ ->
+            (@Case caseStr) = (encode value) enum.value
+            Ok (Enum caseStr),
+    }
 

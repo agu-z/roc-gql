@@ -17,7 +17,7 @@ interface Gql.Output
         Gql.Input.{ Input, Argument },
     ]
 
-Type a : {
+Type a schema : schema -> {
     type : TypeName,
     resolve : a, List Selection, Dict Str Value -> Result Value ResolveErr,
 }
@@ -42,84 +42,93 @@ ResolveErr : [
     InvalidEnumValue,
 ]
 
-Object a : {
+Object a schema : {
     name : Str,
-    fields : Dict Str (Field a),
+    fields : Dict Str (Field a schema),
 }
 
-Field a : {
+Field a schema : {
     name : Str,
-    type : TypeName,
+    type : schema -> TypeName,
     arguments : List Argument,
-    resolve : a, Dict Str Value, List Selection, Dict Str Value -> Result Value ResolveErr,
+    resolve : a, Dict Str Value, schema, List Selection, Dict Str Value -> Result Value ResolveErr,
 }
 
-string : Type Str
-string = {
+string : Type Str *
+string = \_ -> {
     type: String,
     resolve: \a, _, _ -> Ok (String a),
 }
 
-int : Type I32
-int = {
+int : Type I32 *
+int = \_ -> {
     type: Int,
     resolve: \a, _, _ -> Ok (Int a),
 }
 
-listOf : Type a -> Type (List a)
-listOf = \itemType -> {
-    type: List itemType.type,
-    resolve: \list, selection, vars ->
-        list
-        |> List.mapTry \item -> itemType.resolve item selection vars
-        |> Result.map List,
-}
+listOf : Type a schema -> Type (List a) schema
+listOf = \toItemType -> \schema -> 
+    itemType = toItemType schema
 
-nullable : Type a -> Type (Result a [Nothing])
-nullable = \itemType -> {
-    type: Nullable itemType.type,
-    resolve: \value, selection, vars ->
-        value
-        |> Result.map \item -> itemType.resolve item selection vars
-        |> Result.withDefault (Ok Null),
-}
+    {
+        type: List itemType.type,
+        resolve: \list, selection, vars ->
+            list
+            |> List.mapTry \item -> itemType.resolve item selection vars
+            |> Result.map List,
+    }
 
-ref : Object a -> Type a
-ref = \obj -> {
-    type: Ref obj.name,
-    resolve: \value, selection, vars -> resolveObject obj value selection vars,
-}
+nullable : Type a schema -> Type (Result a [Nothing]) schema
+nullable = \toItemType -> \schema -> 
+    itemType = toItemType schema
 
-object : Str, List (Field a) -> Object a
+    {
+        type: Nullable itemType.type,
+        resolve: \value, selection, vars ->
+            value
+            |> Result.map \item -> itemType.resolve item selection vars
+            |> Result.withDefault (Ok Null),
+    }
+
+ref : (schema -> Object a schema) -> Type a schema
+ref = \toObj -> \schema -> 
+    obj = toObj schema
+    {
+        type: Ref obj.name,
+        resolve: \value, selection, vars -> resolveObject obj value schema selection vars,
+    }
+
+object : Str, List (Field a schema) -> Object a schema
 object = \name, fields -> {
     name,
-    fields: fields
-    |> List.map \f -> (f.name, f)
-    |> Dict.fromList,
+    fields: 
+        fields
+        |> List.map \f -> (f.name, f)
+        |> Dict.fromList,
 }
 
 field :
     Str,
-    Type output,
+    Type output schema,
     {
         takes : Input input,
         resolve : a, input -> output,
     }
-    -> Field a
-field = \name, returns, { takes, resolve } -> {
+    -> Field a schema
+field = \name, toReturn, { takes, resolve } -> {
     name,
-    type: returns.type,
+    type: \schema -> (toReturn schema).type,
     arguments: Gql.Input.arguments takes,
-    resolve: \obj, args, selection, vars ->
+    resolve: \obj, args, schema, selection, vars ->
         args
         |> Gql.Input.decode takes
         |> Result.mapErr InputErr
         |> Result.try \input ->
-            returns.resolve (resolve obj input) selection vars,
+            (toReturn schema).resolve (resolve obj input) selection vars,
 }
 
-resolveObject : Object a, a, List Selection, Dict Str Value -> Result Value ResolveErr
-resolveObject = \obj, a, selectionSet, vars ->
+resolveObject : Object a schema, a, schema, List Selection, Dict Str Value -> Result Value ResolveErr
+resolveObject = \obj, a, schema, selectionSet, vars ->
     selectionSet
     |> List.mapTry \selection ->
         when selection is
@@ -132,7 +141,7 @@ resolveObject = \obj, a, selectionSet, vars ->
                     Ok (outName, String obj.name)
                 else
                     schemaField <-
-                        obj.fields
+                        obj.fields 
                         |> Dict.get opField.field
                         |> Result.mapErr \KeyNotFound -> FieldNotFound obj.name opField.field
                         |> Result.try
@@ -146,7 +155,7 @@ resolveObject = \obj, a, selectionSet, vars ->
                         |> Result.map Dict.fromList
                         |> Result.try
 
-                    value <- schemaField.resolve a argsDict opField.selectionSet vars
+                    value <- schemaField.resolve a argsDict schema opField.selectionSet vars
                         |> Result.map
 
                     (outName, value)
