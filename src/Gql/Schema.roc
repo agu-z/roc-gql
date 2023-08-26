@@ -56,6 +56,8 @@ execute = \params ->
 
 addIntrospectionSchema : { query : Object a } -> { query : Object a }
 addIntrospectionSchema = \{ query } ->
+    # TODO: Spec compliant
+    # TODO: Include introspection schema itself
     types =
         Dict.withCapacity 32
         |> Dict.insert query.meta.name (Object query.meta)
@@ -234,26 +236,56 @@ addIntrospectionSchema = \{ query } ->
             },
             resolve: \_, { name } ->
                 Dict.get types name
-                |> Result.map \type ->
-                    when type is
-                        Object obj ->
-                            {
-                                kind: .object,
-                                name: Ok obj.name,
-                                description: Err Nothing,
-                                fields: Ok obj.fields,
-                                enumValues: Err Nothing,
-                            }
-
-                        Enum enum ->
-                            {
-                                kind: .enum,
-                                name: Ok enum.name,
-                                description: Err Nothing,
-                                fields: Err Nothing,
-                                enumValues: Ok enum.values,
-                            }
+                |> Result.map namedTypeToRecord
                 |> Result.mapErr \KeyNotFound -> Nothing,
+        }
+
+    # TODO: Do this at namedType object
+    namedTypeToRecord = \type ->
+        when type is
+            Object obj ->
+                {
+                    kind: .object,
+                    name: Ok obj.name,
+                    description: Err Nothing,
+                    fields: Ok obj.fields,
+                    enumValues: Err Nothing,
+                }
+
+            Enum enum ->
+                {
+                    kind: .enum,
+                    name: Ok enum.name,
+                    description: Err Nothing,
+                    fields: Err Nothing,
+                    enumValues: Ok enum.values,
+                }
+
+    schemaObj =
+        object "__Schema" [
+            field "types" (listOf (ref namedType)) {
+                takes: const {},
+                resolve: \schema, _ ->
+                    schema.types
+                    |> Dict.toList
+                    |> List.map \(_, type) -> namedTypeToRecord type,
+            },
+            field "queryType" (ref namedType) (return \_ -> queryType),
+            # NOT IMPLEMENTED:
+            field "description" (nullable string) (return \_ -> Err Nothing),
+            field "mutationType" (nullable (ref namedType)) (return \_ -> Err Nothing),
+            field "subscriptionType" (nullable (ref namedType)) (return \_ -> Err Nothing),
+            field "directives" (listOf string) (return \_ -> []),
+        ]
+
+    # For some reason, I need to define this outside of schemaObj
+    # Otherwise I get "Error in alias analysis"
+    queryType = namedTypeToRecord (Object query.meta)
+
+    schemaQueryField =
+        field "__schema" (ref schemaObj) {
+            takes: const {},
+            resolve: \_, _ -> { types },
         }
 
     queryMeta = query.meta
@@ -262,10 +294,12 @@ addIntrospectionSchema = \{ query } ->
         query: { query &
             meta: { queryMeta &
                 fields: queryMeta.fields
-                |> List.append typeQueryField.meta,
+                |> List.append typeQueryField.meta
+                |> List.append schemaQueryField.meta,
             },
             resolvers: query.resolvers
-            |> Dict.insert typeQueryField.meta.name typeQueryField.resolve,
+            |> Dict.insert typeQueryField.meta.name typeQueryField.resolve
+            |> Dict.insert schemaQueryField.meta.name schemaQueryField.resolve,
         },
     }
 
@@ -770,3 +804,95 @@ expect
         ]
 
     result == Ok expected
+
+# __schema
+expect
+    result =
+        document <-
+            parseDocument
+                """
+                query {
+                    __schema {
+                        queryType {
+                            name
+                        }
+                        types {
+                            name
+                            fields {
+                                name
+                            }
+                            enumValues {
+                                name
+                            }
+                        }
+                    }
+                }
+                """
+            |> Result.try
+
+        execute {
+            schema: refsTestSchema,
+            document,
+            operation: First,
+            variables: Dict.empty {},
+            rootValue: {},
+        }
+
+    expected =
+        Object [
+            (
+                "__schema",
+                Object [
+                    ("queryType", Object [("name", String "Query")]),
+                    (
+                        "types",
+                        List [
+                            Object [
+                                ("name", String "Query"),
+                                ("fields", List [Object [("name", String "lastOrder")]]),
+                                ("enumValues", Null),
+                            ],
+                            Object [
+                                ("name", String "Order"),
+                                (
+                                    "fields",
+                                    List [
+                                        Object [("name", String "id")],
+                                        Object [("name", String "status")],
+                                        Object [("name", String "products")],
+                                    ],
+                                ),
+                                ("enumValues", Null),
+                            ],
+                            Object [
+                                ("name", String "OrderStatus"),
+                                ("fields", Null),
+                                (
+                                    "enumValues",
+                                    List [
+                                        Object [("name", String "PLACED")],
+                                        Object [("name", String "DELIVERED")],
+                                    ],
+                                ),
+                            ],
+                            Object [
+                                ("name", String "Product"),
+                                (
+                                    "fields",
+                                    List [
+                                        Object [("name", String "id")],
+                                        Object [("name", String "name")],
+                                        Object [("name", String "description")],
+                                        Object [("name", String "stock")],
+                                    ],
+                                ),
+                                ("enumValues", Null),
+                            ],
+                        ],
+                    ),
+                ],
+            ),
+        ]
+
+    result == Ok expected
+
