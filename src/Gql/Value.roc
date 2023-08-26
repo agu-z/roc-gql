@@ -1,5 +1,5 @@
 interface Gql.Value
-    exposes [Value, fromDocument, maybe]
+    exposes [Value, fromDocument, maybe, toJson]
     imports [Gql.Document]
 
 Value : [
@@ -97,3 +97,119 @@ maybe = \m, fn ->
 
 expect maybe (Ok "hi") String == String "hi"
 expect maybe (Err Nothing) String == Null
+
+## JSON ENCODING
+# This is 100% a proof of concept encoder which doesn't even escape strings.
+# Do not take seriously.
+
+toJson : Value -> Str
+toJson = \val ->
+    when val is
+        Int int ->
+            Num.toStr int
+
+        String str | Enum str ->
+            strToJson str
+
+        Boolean bool ->
+            if bool then
+                "true"
+            else
+                "false"
+
+        Null ->
+            "null"
+
+        List values ->
+            items =
+                values
+                |> List.map toJson
+                |> Str.joinWith ","
+
+            "[\(items)]"
+
+        Object fields ->
+            items =
+                fields
+                |> List.map \(key, value) ->
+                    "\(strToJson key):\(toJson value)"
+                |> Str.joinWith ","
+
+            "{\(items)}"
+
+strToJson : Str -> Str
+strToJson = \str ->
+    # TODO: Escape
+    "\"\(str)\""
+
+expect
+    input =
+        Object [
+            (
+                "orderStatus",
+                Object [
+                    ("kind", Enum "ENUM"),
+                    ("name", String "OrderStatus"),
+                    (
+                        "enumValues",
+                        List [
+                            Object [("name", String "PLACED")],
+                            Object [("name", String "DELIVERED")],
+                        ],
+                    ),
+                ],
+            ),
+        ]
+
+    expected =
+        """
+        {"orderStatus":{"kind":"ENUM","name":"OrderStatus","enumValues":[{"name":"PLACED"},{"name":"DELIVERED"}]}}
+        """
+
+    result = toJson input
+
+    expected == result
+
+expect
+    products =
+        List [
+            Object [
+                ("id", Int 1),
+                ("name", String "Pencil"),
+                ("description", String "To write stuff"),
+                ("stock", Int 30),
+            ],
+            Object [
+                ("id", Int 2),
+                ("name", String "Notebook"),
+                ("description", Null),
+                ("stock", Int 23),
+            ],
+            Object [
+                ("id", Int 3),
+                ("name", String "Ruler"),
+                ("description", Null),
+                ("stock", Int 15),
+            ],
+        ]
+
+    input = Object [
+        (
+            "lastOrder",
+            Object [
+                ("__typename", String "Order"),
+                ("id", Int 1),
+                ("status", Enum "PLACED"),
+                ("products", products),
+            ],
+        ),
+    ]
+
+    expected =
+        """
+        {"lastOrder":{"__typename":"Order","id":1,"status":"PLACED","products":[{"id":1,"name":"Pencil","description":"To write stuff","stock":30},{"id":2,"name":"Notebook","description":null,"stock":23},{"id":3,"name":"Ruler","description":null,"stock":15}]}}
+        """
+
+    result = toJson input
+
+    expected == result

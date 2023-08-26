@@ -1,5 +1,5 @@
 interface Gql.Schema
-    exposes [execute]
+    exposes [execute, inputTestSchema]
     imports [
         Gql.Document.{ Document, Selection },
         Gql.Parse.{ parseDocument },
@@ -74,6 +74,9 @@ addIntrospectionSchema = \{ query } ->
     types =
         Dict.withCapacity 32
         |> Dict.insert query.meta.name (Object query.meta)
+        |> Dict.insert "String" (Scalar "String")
+        |> Dict.insert "Int" (Scalar "Int")
+        |> Dict.insert "Boolean" (Scalar "Boolean")
         |> gatherNamedTypes query.meta.fields
 
     return = \fn -> { takes: const {}, resolve: \v, _ -> fn v }
@@ -88,7 +91,7 @@ addIntrospectionSchema = \{ query } ->
             # NOT IMPLEMENTED:
             # Only here so that query doesn't fail
             field "inputFields" (nullable string) (return \_ -> Err Nothing), #
-            field "interfaces" (nullable string) (return \_ -> Err Nothing),
+            field "interfaces" (nullable (listOf string)) (return \_ -> Ok []),
             field "possibleTypes" (nullable string) (return \_ -> Err Nothing),
         ]
 
@@ -256,6 +259,15 @@ addIntrospectionSchema = \{ query } ->
     # TODO: Do this at namedType object
     namedTypeToRecord = \type ->
         when type is
+            Scalar name ->
+                {
+                    kind: .scalar,
+                    name: Ok name,
+                    description: Err Nothing,
+                    fields: Err Nothing,
+                    enumValues: Err Nothing,
+                }
+
             Object obj ->
                 {
                     kind: .object,
@@ -317,6 +329,7 @@ addIntrospectionSchema = \{ query } ->
     }
 
 NamedType : [
+    Scalar Str,
     Object ObjectMeta,
     Enum EnumMeta,
     # InputObject, Interface, Union, Scalar
@@ -335,10 +348,13 @@ gatherNamedTypes = \dict, fields ->
         Ok (Enum enum) ->
             Dict.insert cdict enum.name (Enum enum)
 
-        Err Scalar ->
+        Ok (Scalar name) ->
+            Dict.insert cdict name (Scalar name)
+
+        Err Unnamed ->
             cdict
 
-getNamedType : Gql.Output.TypeMeta -> Result NamedType [Scalar]
+getNamedType : Gql.Output.TypeMeta -> Result NamedType [Unnamed]
 getNamedType = \type ->
     when type is
         Ref obj ->
@@ -354,7 +370,7 @@ getNamedType = \type ->
             getNamedType ntype
 
         String | Int | Boolean ->
-            Err Scalar
+            Err Unnamed
 
 inputTestSchema =
     query =
@@ -941,6 +957,21 @@ expect
                                 ("enumValues", Null),
                             ],
                             Object [
+                                ("name", String "String"),
+                                ("fields", Null),
+                                ("enumValues", Null),
+                            ],
+                            Object [
+                                ("name", String "Int"),
+                                ("fields", Null),
+                                ("enumValues", Null),
+                            ],
+                            Object [
+                                ("name", String "Boolean"),
+                                ("fields", Null),
+                                ("enumValues", Null),
+                            ],
+                            Object [
                                 ("name", String "Order"),
                                 (
                                     "fields",
@@ -983,4 +1014,3 @@ expect
         ]
 
     result == Ok expected
-

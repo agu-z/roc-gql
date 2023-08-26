@@ -779,6 +779,7 @@ expect parseStr name "users2" == Ok "users2"
 expect parseStr name "2users" |> Result.isErr
 expect parseStr name "product_id" == Ok "product_id"
 expect parseStr name "product id" |> Result.isErr
+expect parseStr name "__Type" == Ok "__Type"
 
 nameStart =
     isAlpha
