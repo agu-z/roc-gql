@@ -7,8 +7,12 @@ interface Gql.Schema
         Gql.Output.{
             ResolveErr,
             Object,
+            ObjectMeta,
+            EnumMeta,
+            FieldMeta,
             string,
             int,
+            boolean,
             listOf,
             nullable,
             ref,
@@ -54,22 +58,32 @@ addIntrospectionSchema : { query : Object a } -> { query : Object a }
 addIntrospectionSchema = \{ query } ->
     types =
         Dict.withCapacity 10
-        |> gatherTypes query.meta.fields
+        |> gatherNamedTypes query.meta.fields
 
     return = \fn -> { takes: const {}, resolve: \v, _ -> fn v }
 
-    typeObj = \{ fieldRef } ->
+    namedType =
         object "__Type" [
             field "kind" typeKind (return .kind),
             field "name" (nullable string) (return .name),
             field "description" (nullable string) (return .description),
-            field "fields" (nullable (listOf (ref fieldRef))) (return .fields),
+            field "fields" (nullable (listOf (ref fieldObj))) (return .fields),
+            field "enumValues" (nullable (listOf (ref enumValue))) (return .enumValues),
             # NOT IMPLEMENTED:
             # Only here so that query doesn't fail
-            field "inputFields" (nullable string) (return .inputFields), #
-            field "interfaces" (nullable string) (return .interfaces),
-            field "possibleTypes" (nullable string) (return .possibleTypes),
-            field "enumValues" (nullable string) (return .enumValues),
+            field "inputFields" (nullable string) (return \_ -> Err Nothing), #
+            field "interfaces" (nullable string) (return \_ -> Err Nothing),
+            field "possibleTypes" (nullable string) (return \_ -> Err Nothing),
+        ]
+
+    enumValue : Object Gql.Output.EnumValue
+    enumValue =
+        object "__EnumValue" [
+            field "name" string (return .name),
+            # NOT IMPLEMENTED:
+            field "description" (nullable string) (return \_ -> Err Nothing),
+            field "isDeprecated" boolean (return \_ -> Bool.false),
+            field "deprecationReason" (nullable string) (return \_ -> Err Nothing),
         ]
 
     typeKind =
@@ -98,6 +112,7 @@ addIntrospectionSchema = \{ query } ->
         resolve: \t, _, _ -> Ok (encodeTypeRef t),
     }
 
+    encodeTypeRef : Gql.Output.TypeMeta -> Value
     encodeTypeRef = \type ->
         encodeNonNull = \t ->
             when t is
@@ -112,6 +127,13 @@ addIntrospectionSchema = \{ query } ->
                     Object [
                         ("kind", Enum "SCALAR"),
                         ("name", String "Int"),
+                        ("ofType", Null),
+                    ]
+
+                Boolean ->
+                    Object [
+                        ("kind", Enum "SCALAR"),
+                        ("name", String "Boolean"),
                         ("ofType", Null),
                     ]
 
@@ -132,10 +154,10 @@ addIntrospectionSchema = \{ query } ->
                         ("ofType", Null),
                     ]
 
-                Enum name _ ->
+                Enum e ->
                     Object [
                         ("kind", Enum "ENUM"),
-                        ("name", String name),
+                        ("name", String e.name),
                         ("ofType", Null),
                     ]
 
@@ -151,23 +173,31 @@ addIntrospectionSchema = \{ query } ->
                 ]
 
     typeQueryField =
-        field "__type" (nullable (ref (typeObj { fieldRef: fieldObj }))) {
+        field "__type" (nullable (ref namedType)) {
             takes: const {
                 name: <- required "name" Gql.Input.string,
             },
             resolve: \_, { name } ->
                 Dict.get types name
-                |> Result.map \obj -> {
-                    kind: .object,
-                    name: Ok obj.name,
-                    description: Err Nothing,
-                    fields: Ok obj.fields,
-                    interfaces: Err Nothing,
-                    possibleTypes: Err Nothing,
-                    enumValues: Err Nothing,
-                    inputFields: Err Nothing,
-                    ofType: Err Nothing,
-                }
+                |> Result.map \type ->
+                    when type is
+                        Object obj ->
+                            {
+                                kind: .object,
+                                name: Ok obj.name,
+                                description: Err Nothing,
+                                fields: Ok obj.fields,
+                                enumValues: Err Nothing,
+                            }
+
+                        Enum enum ->
+                            {
+                                kind: .enum,
+                                name: Ok enum.name,
+                                description: Err Nothing,
+                                fields: Err Nothing,
+                                enumValues: Ok enum.values,
+                            }
                 |> Result.mapErr \KeyNotFound -> Nothing,
         }
 
@@ -184,32 +214,45 @@ addIntrospectionSchema = \{ query } ->
         },
     }
 
-gatherTypes = \dict, fields ->
+NamedType : [
+    Object ObjectMeta,
+    Enum EnumMeta,
+    # InputObject, Interface, Union, Scalar
+]
+
+gatherNamedTypes : Dict Str NamedType, List FieldMeta -> Dict Str NamedType
+gatherNamedTypes = \dict, fields ->
     cdict, cfield <- List.walk fields dict
 
-    when getRef cfield.type is
-        Ok obj ->
+    when getNamedType cfield.type is
+        Ok (Object obj) ->
             cdict
-            |> Dict.insert obj.name obj
-            |> gatherTypes obj.fields
+            |> Dict.insert obj.name (Object obj)
+            |> gatherNamedTypes obj.fields
 
-        Err NotRef ->
+        Ok (Enum enum) ->
+            Dict.insert cdict enum.name (Enum enum)
+
+        Err Scalar ->
             cdict
 
-getRef : Gql.Output.TypeMeta -> Result Gql.Output.ObjectMeta [NotRef]
-getRef = \type ->
+getNamedType : Gql.Output.TypeMeta -> Result NamedType [Scalar]
+getNamedType = \type ->
     when type is
         Ref obj ->
-            Ok obj
+            Ok (Object obj)
+
+        Enum enum ->
+            Ok (Enum enum)
 
         List ltype ->
-            getRef ltype
+            getNamedType ltype
 
         Nullable ntype ->
-            getRef ntype
+            getNamedType ntype
 
-        String | Int | Enum _ _ ->
-            Err NotRef
+        String | Int | Boolean ->
+            Err Scalar
 
 expect
     query =
@@ -483,6 +526,51 @@ expect
                                     ],
                                 ),
                             ],
+                        ],
+                    ),
+                ],
+            ),
+        ]
+
+    result == Ok expected
+
+expect
+    result =
+        document <-
+            parseDocument
+                """
+                query {
+                    orderStatus: __type(name: "OrderStatus") {
+                        kind
+                        name
+                        enumValues {
+                            name
+                        }
+                    }
+                }
+                """
+            |> Result.try
+
+        execute {
+            schema: testSchema,
+            document,
+            operation: First,
+            variables: Dict.empty {},
+            rootValue: {},
+        }
+
+    expected =
+        Object [
+            (
+                "orderStatus",
+                Object [
+                    ("kind", Enum "ENUM"),
+                    ("name", String "OrderStatus"),
+                    (
+                        "enumValues",
+                        List [
+                            Object [("name", String "PLACED")],
+                            Object [("name", String "DELIVERED")],
                         ],
                     ),
                 ],

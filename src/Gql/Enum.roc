@@ -37,7 +37,7 @@ case = \name ->
 
 type : Enum cases, (value -> (cases -> Case)) -> Type value
 type = \@Enum enum, encode -> {
-    type: Enum enum.name enum.values,
+    type: Enum { name: enum.name, values: enum.values },
     resolve: \value, _, _ ->
         (@Case caseStr) = (encode value) enum.value
         Ok (Enum caseStr),

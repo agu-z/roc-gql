@@ -5,8 +5,10 @@ interface Gql.Output
         ResolveErr,
         FieldMeta,
         ObjectMeta,
+        EnumMeta,
         string,
         int,
+        boolean,
         listOf,
         nullable,
         ref,
@@ -27,6 +29,7 @@ Type a : {
 TypeMeta : [
     String,
     Int,
+    Boolean,
     List TypeMeta,
     Ref
         # Can't use aliases because compiler stack overflows
@@ -39,8 +42,13 @@ TypeMeta : [
             },
         },
     Nullable TypeMeta,
-    Enum Str (List EnumValue),
+    Enum EnumMeta,
 ]
+
+EnumMeta : {
+    name : Str,
+    values : List EnumValue,
+}
 
 EnumValue : {
     name : Str,
@@ -86,6 +94,12 @@ int : Type I32
 int = {
     type: Int,
     resolve: \a, _, _ -> Ok (Int a),
+}
+
+boolean : Type Bool
+boolean = {
+    type: Boolean,
+    resolve: \a, _, _ -> Ok (Boolean a),
 }
 
 listOf : Type a -> Type (List a)
