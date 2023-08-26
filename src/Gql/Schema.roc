@@ -57,7 +57,8 @@ execute = \params ->
 addIntrospectionSchema : { query : Object a } -> { query : Object a }
 addIntrospectionSchema = \{ query } ->
     types =
-        Dict.withCapacity 10
+        Dict.withCapacity 32
+        |> Dict.insert query.meta.name (Object query.meta)
         |> gatherNamedTypes query.meta.fields
 
     return = \fn -> { takes: const {}, resolve: \v, _ -> fn v }
@@ -103,6 +104,12 @@ addIntrospectionSchema = \{ query } ->
         object "__Field" [
             field "name" string (return .name),
             field "type" typeRef (return .type),
+            field "args" (listOf (ref inputValue)) (return .arguments),
+
+            # NOT IMPLEMENTED:
+            field "description" (nullable string) (return \_ -> Err Nothing),
+            field "isDeprecated" boolean (return \_ -> Bool.false),
+            field "deprecationReason" (nullable string) (return \_ -> Err Nothing),
         ]
 
     # Compiler bugs prevent us from having a normal recursive object
@@ -160,6 +167,54 @@ addIntrospectionSchema = \{ query } ->
                         ("name", String e.name),
                         ("ofType", Null),
                     ]
+
+        when type is
+            Nullable itemType ->
+                encodeNonNull itemType
+
+            _ ->
+                Object [
+                    ("kind", Enum "NON_NULL"),
+                    ("name", Null),
+                    ("ofType", encodeNonNull type),
+                ]
+
+    inputValue : Object Gql.Input.Argument
+    inputValue =
+        object "__InputValue" [
+            field "name" string (return .name),
+            field "type" inputTypeRef (return .type),
+            # NOT IMPLEMENTED:
+            field "description" (nullable string) (return \_ -> Err Nothing),
+            field "defaultValue" (nullable string) (return \_ -> Err Nothing),
+        ]
+
+    # TODO: Should we unify input & output types somehow?
+    inputTypeRef : Gql.Output.Type Gql.Input.TypeMeta
+    inputTypeRef = {
+        type: Ref { name: "__Type", fields: [] },
+        resolve: \t, _, _ -> Ok (encodeInputTypeRef t),
+    }
+
+    encodeInputTypeRef = \type ->
+        encodeNonNull = \t ->
+            when t is
+                String ->
+                    Object [
+                        ("kind", Enum "SCALAR"),
+                        ("name", String "String"),
+                        ("ofType", Null),
+                    ]
+
+                Int ->
+                    Object [
+                        ("kind", Enum "SCALAR"),
+                        ("name", String "Int"),
+                        ("ofType", Null),
+                    ]
+
+                Nullable _ ->
+                    crash "unreachable"
 
         when type is
             Nullable itemType ->
@@ -254,7 +309,7 @@ getNamedType = \type ->
         String | Int | Boolean ->
             Err Scalar
 
-expect
+inputTestSchema =
     query =
         object "Query" [
             field "greet" string {
@@ -273,6 +328,9 @@ expect
             },
         ]
 
+    { query }
+
+expect
     result =
         document <-
             parseDocument
@@ -286,7 +344,7 @@ expect
             |> Result.try
 
         execute {
-            schema: { query },
+            schema: inputTestSchema,
             document,
             operation: First,
             variables: Dict.fromList [("name", String "Matt")],
@@ -303,7 +361,7 @@ expect
             ]
         )
 
-testSchema =
+refsTestSchema =
     query =
         object "Query" [
             field "lastOrder" (ref order) {
@@ -372,7 +430,7 @@ expect
             |> Result.try
 
         execute {
-            schema: testSchema,
+            schema: refsTestSchema,
             document,
             operation: First,
             variables: Dict.empty {},
@@ -415,6 +473,9 @@ expect
 
     result == Ok expected
 
+# INTROSPECTION TESTS
+
+# __type for object
 expect
     result =
         document <-
@@ -432,6 +493,14 @@ expect
                                 ofType {
                                     kind
                                     name
+                                    ofType {
+                                        kind
+                                        name
+                                        ofType {
+                                            kind
+                                            name
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -441,7 +510,7 @@ expect
             |> Result.try
 
         execute {
-            schema: testSchema,
+            schema: refsTestSchema,
             document,
             operation: First,
             variables: Dict.empty {},
@@ -534,6 +603,7 @@ expect
 
     result == Ok expected
 
+# __type for enum
 expect
     result =
         document <-
@@ -552,7 +622,7 @@ expect
             |> Result.try
 
         execute {
-            schema: testSchema,
+            schema: refsTestSchema,
             document,
             operation: First,
             variables: Dict.empty {},
@@ -571,6 +641,128 @@ expect
                         List [
                             Object [("name", String "PLACED")],
                             Object [("name", String "DELIVERED")],
+                        ],
+                    ),
+                ],
+            ),
+        ]
+
+    result == Ok expected
+
+# field arguments
+expect
+    result =
+        document <-
+            parseDocument
+                """
+                query {
+                    query: __type(name: "Query") {
+                        fields {
+                            name
+                            args {
+                                name
+                                type {
+                                    kind 
+                                    name
+                                    ofType {
+                                        kind
+                                        name
+                                        ofType {
+                                            kind
+                                            name
+                                            ofType {
+                                                kind
+                                                name
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                """
+            |> Result.try
+
+        execute {
+            schema: inputTestSchema,
+            document,
+            operation: First,
+            variables: Dict.empty {},
+            rootValue: {},
+        }
+
+    expected =
+        Object [
+            (
+                "query",
+                Object [
+                    (
+                        "fields",
+                        List [
+                            Object [
+                                ("name", String "greet"),
+                                (
+                                    "args",
+                                    List [
+                                        Object [
+                                            ("name", String "name"),
+                                            (
+                                                "type",
+                                                Object [
+                                                    ("kind", Enum "SCALAR"),
+                                                    ("name", String "String"),
+                                                    ("ofType", Null),
+                                                ],
+                                            ),
+                                        ],
+                                    ],
+                                ),
+                            ],
+                            Object [
+                                ("name", String "plus"),
+                                (
+                                    "args",
+                                    List [
+                                        Object [
+                                            ("name", String "a"),
+                                            (
+                                                "type",
+                                                Object [
+                                                    ("kind", Enum "NON_NULL"),
+                                                    ("name", Null),
+                                                    (
+                                                        "ofType",
+                                                        Object [
+                                                            ("kind", Enum "SCALAR"),
+                                                            ("name", String "Int"),
+                                                            ("ofType", Null),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                        ],
+                                        Object [
+                                            ("name", String "b"),
+                                            (
+                                                "type",
+                                                Object [
+                                                    ("kind", Enum "NON_NULL"),
+                                                    ("name", Null),
+                                                    (
+                                                        "ofType",
+                                                        Object [
+                                                            ("kind", Enum "SCALAR"),
+                                                            ("name", String "Int"),
+                                                            ("ofType", Null),
+                                                        ],
+                                                    ),
+                                                ],
+                                            ),
+                                        ],
+                                    ],
+                                ),
+                            ],
                         ],
                     ),
                 ],

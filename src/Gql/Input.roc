@@ -2,6 +2,7 @@ interface Gql.Input
     exposes [
         Argument,
         Input,
+        TypeMeta,
         Type,
         Error,
         arguments,
@@ -26,18 +27,19 @@ Error : {
     problem : [
         Missing,
         NullValue,
-        InvalidValue TypeName Value,
+        InvalidValue TypeMeta Value,
     ],
 }
 
-TypeName : [
+TypeMeta : [
     String,
     Int,
+    Nullable TypeMeta,
 ]
 
 Argument : {
     name : Str,
-    type : TypeName,
+    type : TypeMeta,
 }
 
 const : a -> Input a
@@ -48,7 +50,7 @@ const = \value ->
     }
 
 Type a : {
-    type : TypeName,
+    type : TypeMeta,
     decoder : Value -> Result a Value,
 }
 
@@ -94,7 +96,7 @@ optional : Str, Type a -> (Input (Result a [Nothing] -> b) -> Input b)
 optional = \name, typeRef ->
     newArg = {
         name,
-        type: typeRef.type,
+        type: Nullable typeRef.type,
     }
 
     apply = \@Input fnInput ->
