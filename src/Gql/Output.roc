@@ -6,6 +6,7 @@ interface Gql.Output
         FieldMeta,
         ObjectMeta,
         EnumMeta,
+        OpContext,
         string,
         int,
         boolean,
@@ -16,14 +17,14 @@ interface Gql.Output
         field,
         resolveObject,
     ] imports [
-        Gql.Document.{ Selection },
+        Gql.Document.{ CanSelection, Document },
         Gql.Value.{ Value },
         Gql.Input.{ Input, Argument },
     ]
 
 Type a : {
     type : TypeMeta,
-    resolve : a, List Selection, Dict Str Value -> Result Value ResolveErr,
+    resolve : a, List CanSelection, OpContext -> Result Value ResolveErr,
 }
 
 TypeMeta : [
@@ -82,7 +83,12 @@ FieldMeta : {
     arguments : List Argument,
 }
 
-FieldResolve a : a, Dict Str Value, List Selection, Dict Str Value -> Result Value ResolveErr
+FieldResolve a : a, Dict Str Value, List CanSelection, OpContext -> Result Value ResolveErr
+
+OpContext : {
+    variables : Dict Str Value,
+    document : Document,
+}
 
 string : Type Str
 string = {
@@ -123,7 +129,7 @@ nullable = \itemType -> {
 ref : Object a -> Type a
 ref = \obj -> {
     type: Ref obj.meta,
-    resolve: \value, selection, vars -> resolveObject obj value selection vars,
+    resolve: \value, selection, opCtx -> resolveObject obj value selection opCtx,
 }
 
 object : Str, List (Field a) -> Object a
@@ -151,47 +157,42 @@ field = \name, returns, { takes, resolve } -> {
         type: returns.type,
         arguments: Gql.Input.arguments takes,
     },
-    resolve: \obj, args, selection, vars ->
+    resolve: \obj, args, selection, opCtx ->
         args
         |> Gql.Input.decode takes
         |> Result.mapErr InputErr
         |> Result.try \input ->
-            returns.resolve (resolve obj input) selection vars,
+            returns.resolve (resolve obj input) selection opCtx,
 }
 
-resolveObject : Object a, a, List Selection, Dict Str Value -> Result Value ResolveErr
-resolveObject = \obj, a, selectionSet, vars ->
+resolveObject : Object a, a, List CanSelection, OpContext -> Result Value ResolveErr
+resolveObject = \obj, a, selectionSet, opCtx ->
     selectionSet
-    |> List.mapTry \selection ->
-        when selection is
-            Field opField ->
-                outName =
-                    opField.alias
-                    |> Result.withDefault opField.field
+    |> List.mapTry \CanField opField ->
+        outName =
+            opField.alias
+            |> Result.withDefault opField.field
 
-                if opField.field == "__typename" then
-                    Ok (outName, String obj.meta.name)
-                else
-                    fieldResolver <-
-                        obj.resolvers
-                        |> Dict.get opField.field
-                        |> Result.mapErr \KeyNotFound -> FieldNotFound obj.meta.name opField.field
-                        |> Result.try
+        if opField.field == "__typename" then
+            Ok (outName, String obj.meta.name)
+        else
+            fieldResolver <-
+                obj.resolvers
+                |> Dict.get opField.field
+                |> Result.mapErr \KeyNotFound -> FieldNotFound obj.meta.name opField.field
+                |> Result.try
 
-                    argsDict <-
-                        opField.arguments
-                        |> List.mapTry \(key, docValue) ->
-                            docValue
-                            |> Gql.Value.fromDocument vars
-                            |> Result.map \value -> (key, value)
-                        |> Result.map Dict.fromList
-                        |> Result.try
+            argsDict <-
+                opField.arguments
+                |> List.mapTry \(key, docValue) ->
+                    docValue
+                    |> Gql.Value.fromDocument opCtx.variables
+                    |> Result.map \value -> (key, value)
+                |> Result.map Dict.fromList
+                |> Result.try
 
-                    value <- fieldResolver a argsDict opField.selectionSet vars
-                        |> Result.map
+            value <- fieldResolver a argsDict opField.selectionSet opCtx
+                |> Result.map
 
-                    (outName, value)
-
-            _ ->
-                crash "todo"
+            (outName, value)
     |> Result.map Object

@@ -34,7 +34,14 @@ execute :
         variables : Dict Str Value,
         rootValue : root,
     }
-    -> Result Value [OperationNotFound, ResolveErr ResolveErr]
+    -> Result
+        Value
+        [
+            OperationNotFound,
+            FragmentNotFound Str,
+            RecursiveFragment Str,
+            ResolveErr ResolveErr,
+        ]
 execute = \params ->
     operation <-
         params.document
@@ -45,13 +52,19 @@ execute = \params ->
     # TODO: Err if argument used undefined var
     # TODO: Err if var type doesn't match argument type
 
+    canSelection <-
+        operation.selectionSet
+        |> List.mapTry \sel -> Gql.Document.canSelection sel params.document
+        |> Result.map List.join
+        |> Result.try
+
     params.schema
     |> addIntrospectionSchema
     |> .query
-    |> resolveObject
-        params.rootValue
-        operation.selectionSet
-        params.variables
+    |> resolveObject params.rootValue canSelection {
+        variables: params.variables,
+        document: params.document,
+    }
     |> Result.mapErr ResolveErr
 
 addIntrospectionSchema : { query : Object a } -> { query : Object a }
@@ -459,6 +472,81 @@ expect
                             stock
                         }
                     }
+                }
+                """
+            |> Result.try
+
+        execute {
+            schema: refsTestSchema,
+            document,
+            operation: First,
+            variables: Dict.empty {},
+            rootValue: {},
+        }
+
+    expectedProducts =
+        List [
+            Object [
+                ("id", Int 1),
+                ("name", String "Pencil"),
+                ("description", String "To write stuff"),
+                ("stock", Int 30),
+            ],
+            Object [
+                ("id", Int 2),
+                ("name", String "Notebook"),
+                ("description", Null),
+                ("stock", Int 23),
+            ],
+            Object [
+                ("id", Int 3),
+                ("name", String "Ruler"),
+                ("description", Null),
+                ("stock", Int 15),
+            ],
+        ]
+
+    expected = Object [
+        (
+            "lastOrder",
+            Object [
+                ("__typename", String "Order"),
+                ("id", Int 1),
+                ("status", Enum "PLACED"),
+                ("products", expectedProducts),
+            ],
+        ),
+    ]
+
+    result == Ok expected
+
+# FRAGMENT SPREAD TESTS
+
+expect
+    result =
+        document <-
+            parseDocument
+                """
+                query {
+                    lastOrder {
+                        __typename
+                        ...Order
+                        products {
+                            ...Product
+                        }
+                    }
+                }
+
+                fragment Order on Order {
+                    id
+                    status
+                }
+
+                fragment Product on Product {
+                    id
+                    name
+                    description
+                    stock
                 }
                 """
             |> Result.try
