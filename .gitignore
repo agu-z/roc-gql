@@ -1,2 +1,3 @@
 src/scratch*
 *.roc-format-failed
+*.roc-format-unstable-*

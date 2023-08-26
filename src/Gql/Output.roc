@@ -1,8 +1,10 @@
 interface Gql.Output
     exposes [
-        TypeName,
+        TypeMeta,
         Type,
         ResolveErr,
+        FieldMeta,
+        ObjectMeta,
         string,
         int,
         listOf,
@@ -18,16 +20,25 @@ interface Gql.Output
     ]
 
 Type a : {
-    type : TypeName,
+    type : TypeMeta,
     resolve : a, List Selection, Dict Str Value -> Result Value ResolveErr,
 }
 
-TypeName : [
+TypeMeta : [
     String,
     Int,
-    List TypeName,
-    Ref Str,
-    Nullable TypeName,
+    List TypeMeta,
+    Ref
+        # Can't use aliases because compiler stack overflows
+        {
+            name : Str,
+            fields : List {
+                name : Str,
+                type : TypeMeta,
+                arguments : List Argument,
+            },
+        },
+    Nullable TypeMeta,
     Enum Str (List EnumValue),
 ]
 
@@ -43,16 +54,27 @@ ResolveErr : [
 ]
 
 Object a : {
+    meta : ObjectMeta,
+    resolvers : Dict Str (FieldResolve a),
+}
+
+ObjectMeta : {
     name : Str,
-    fields : Dict Str (Field a),
+    fields : List FieldMeta,
 }
 
 Field a : {
-    name : Str,
-    type : TypeName,
-    arguments : List Argument,
-    resolve : a, Dict Str Value, List Selection, Dict Str Value -> Result Value ResolveErr,
+    meta : FieldMeta,
+    resolve : FieldResolve a,
 }
+
+FieldMeta : {
+    name : Str,
+    type : TypeMeta,
+    arguments : List Argument,
+}
+
+FieldResolve a : a, Dict Str Value, List Selection, Dict Str Value -> Result Value ResolveErr
 
 string : Type Str
 string = {
@@ -86,15 +108,18 @@ nullable = \itemType -> {
 
 ref : Object a -> Type a
 ref = \obj -> {
-    type: Ref obj.name,
+    type: Ref obj.meta,
     resolve: \value, selection, vars -> resolveObject obj value selection vars,
 }
 
 object : Str, List (Field a) -> Object a
 object = \name, fields -> {
-    name,
-    fields: fields
-    |> List.map \f -> (f.name, f)
+    meta: {
+        name,
+        fields: fields |> List.map .meta,
+    },
+    resolvers: fields
+    |> List.map \f -> (f.meta.name, f.resolve)
     |> Dict.fromList,
 }
 
@@ -107,9 +132,11 @@ field :
     }
     -> Field a
 field = \name, returns, { takes, resolve } -> {
-    name,
-    type: returns.type,
-    arguments: Gql.Input.arguments takes,
+    meta: {
+        name,
+        type: returns.type,
+        arguments: Gql.Input.arguments takes,
+    },
     resolve: \obj, args, selection, vars ->
         args
         |> Gql.Input.decode takes
@@ -129,12 +156,12 @@ resolveObject = \obj, a, selectionSet, vars ->
                     |> Result.withDefault opField.field
 
                 if opField.field == "__typename" then
-                    Ok (outName, String obj.name)
+                    Ok (outName, String obj.meta.name)
                 else
-                    schemaField <-
-                        obj.fields
+                    fieldResolver <-
+                        obj.resolvers
                         |> Dict.get opField.field
-                        |> Result.mapErr \KeyNotFound -> FieldNotFound obj.name opField.field
+                        |> Result.mapErr \KeyNotFound -> FieldNotFound obj.meta.name opField.field
                         |> Result.try
 
                     argsDict <-
@@ -146,7 +173,7 @@ resolveObject = \obj, a, selectionSet, vars ->
                         |> Result.map Dict.fromList
                         |> Result.try
 
-                    value <- schemaField.resolve a argsDict opField.selectionSet vars
+                    value <- fieldResolver a argsDict opField.selectionSet vars
                         |> Result.map
 
                     (outName, value)

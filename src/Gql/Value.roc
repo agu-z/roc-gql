@@ -1,5 +1,5 @@
 interface Gql.Value
-    exposes [Value, fromDocument]
+    exposes [Value, fromDocument, maybe]
     imports [Gql.Document]
 
 Value : [
@@ -85,3 +85,15 @@ expect
                 ("after", String "abc"),
             ]
         )
+
+maybe : Result a [Nothing], (a -> Value) -> Value
+maybe = \m, fn ->
+    when m is
+        Ok val ->
+            fn val
+
+        Err Nothing ->
+            Null
+
+expect maybe (Ok "hi") String == String "hi"
+expect maybe (Err Nothing) String == Null
