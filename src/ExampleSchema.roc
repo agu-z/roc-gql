@@ -80,7 +80,7 @@ postSection =
                 .news
 
             Opinion ->
-                .news
+                .opinion
 
 Author : {
     firstName : Str,
