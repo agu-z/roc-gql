@@ -1,5 +1,5 @@
 interface Gql.Value
-    exposes [Value, fromDocument, maybe, toJson]
+    exposes [Value, fromDocument, maybe, toJson, get]
     imports [Gql.Document]
 
 Value : [
@@ -97,6 +97,60 @@ maybe = \m, fn ->
 
 expect maybe (Ok "hi") String == String "hi"
 expect maybe (Err Nothing) String == Null
+
+get : Value, List [Key Str, Index Nat] -> Result Value [NotFound]
+get = \value, path ->
+    { before, others } = List.split path 1
+
+    when (before, value) is
+        ([], _) ->
+            Ok value
+
+        ([Key wantedKey], Object fields) ->
+            fields
+            |> List.findFirst \(key, _) -> key == wantedKey
+            |> Result.try \(_, sub) -> get sub others
+
+        ([Index index], List items) ->
+            items
+            |> List.get index
+            |> Result.mapErr \OutOfBounds -> NotFound
+            |> Result.try \sub -> get sub others
+
+        _ ->
+            Err NotFound
+
+expect String "hi" |> get [] == Ok (String "hi")
+expect List [Int 0, Int 1, Int 2] |> get [Index 1] == Ok (Int 1)
+expect
+    Object [
+        ("zero", Int 0),
+        ("one", Int 1),
+    ]
+    |> get [Key "zero"]
+    == Ok (Int 0)
+expect
+    Object [
+        ("zero", Int 0),
+        ("one", Int 1),
+    ]
+    |> get [Key "one"]
+    == Ok (Int 1)
+expect
+    Object [
+        ("even", List [Int 0, Int 2]),
+        ("odd", List [Int 1, Int 3]),
+    ]
+    |> get [Key "odd"]
+    == Ok (List [Int 1, Int 3])
+expect
+    Object [
+        ("even", List [Int 0, Int 2]),
+        ("odd", List [Int 1, Int 3]),
+    ]
+    |> get [Key "even", Index 1]
+    == Ok (Int 2)
+expect Object [("zero", Int 0), ("one", Int 1)] |> get [Index 0] == Err NotFound
 
 ## JSON ENCODING
 # This is 100% a proof of concept encoder which doesn't even escape strings.
@@ -213,3 +267,4 @@ expect
     result = toJson input
 
     expected == result
+

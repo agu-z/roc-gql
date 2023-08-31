@@ -15,7 +15,9 @@ interface Gql.Output
         ref,
         object,
         field,
+        addField,
         resolveObject,
+        describe,
     ] imports [
         Gql.Document.{ CanSelection, Document },
         Gql.Value.{ Value },
@@ -38,6 +40,7 @@ TypeMeta : [
             name : Str,
             fields : List {
                 name : Str,
+                description : Result Str [Nothing],
                 type : TypeMeta,
                 arguments : List Argument,
             },
@@ -72,13 +75,23 @@ ObjectMeta : {
     fields : List FieldMeta,
 }
 
-Field a : {
+Field a := {
     meta : FieldMeta,
     resolve : FieldResolve a,
 }
+    implements [
+        Documentable {
+            describe: describeField,
+        },
+    ]
+
+describeField = \@Field f, description ->
+    fieldMeta = f.meta
+    @Field { f & meta: { fieldMeta & description: Ok description } }
 
 FieldMeta : {
     name : Str,
+    description : Result Str [Nothing],
     type : TypeMeta,
     arguments : List Argument,
 }
@@ -133,14 +146,25 @@ ref = \obj -> {
 }
 
 object : Str, List (Field a) -> Object a
-object = \name, fields -> {
+object = \name, fields ->
+    len = List.len fields
+
+    default = {
+        meta: { name, fields: List.withCapacity len },
+        resolvers: Dict.withCapacity len,
+    }
+
+    List.walk fields default addField
+
+addField : Object a, Field a -> Object a
+addField = \obj, @Field f -> {
     meta: {
-        name,
-        fields: fields |> List.map .meta,
+        name: obj.meta.name,
+        fields: obj.meta.fields
+        |> List.append f.meta,
     },
-    resolvers: fields
-    |> List.map \f -> (f.meta.name, f.resolve)
-    |> Dict.fromList,
+    resolvers: obj.resolvers
+    |> Dict.insert f.meta.name f.resolve,
 }
 
 field :
@@ -151,19 +175,20 @@ field :
         resolve : a, input -> output,
     }
     -> Field a
-field = \name, returns, { takes, resolve } -> {
-    meta: {
-        name,
-        type: returns.type,
-        arguments: Gql.Input.arguments takes,
-    },
-    resolve: \obj, args, selection, opCtx ->
-        args
-        |> Gql.Input.decode takes
-        |> Result.mapErr InputErr
-        |> Result.try \input ->
-            returns.resolve (resolve obj input) selection opCtx,
-}
+field = \name, returns, { takes, resolve } -> @Field {
+        meta: {
+            name,
+            description: Err Nothing,
+            type: returns.type,
+            arguments: Gql.Input.arguments takes,
+        },
+        resolve: \obj, args, selection, opCtx ->
+            args
+            |> Gql.Input.decode takes
+            |> Result.mapErr InputErr
+            |> Result.try \input ->
+                returns.resolve (resolve obj input) selection opCtx,
+    }
 
 resolveObject : Object a, a, List CanSelection, OpContext -> Result Value ResolveErr
 resolveObject = \obj, a, selectionSet, opCtx ->
@@ -196,3 +221,8 @@ resolveObject = \obj, a, selectionSet, opCtx ->
 
             (outName, value)
     |> Result.map Object
+
+# Docs
+
+Documentable implements
+    describe : v, Str -> v where v implements Documentable

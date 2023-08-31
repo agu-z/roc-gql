@@ -18,6 +18,7 @@ interface Gql.Schema
             ref,
             object,
             field,
+            describe,
             resolveObject,
         },
         Gql.Input.{ const, required, optional },
@@ -123,9 +124,9 @@ addIntrospectionSchema = \{ query } ->
             field "name" string (return .name),
             field "type" typeRef (return .type),
             field "args" (listOf (ref inputValue)) (return .arguments),
+            field "description" (nullable string) (return .description),
 
             # NOT IMPLEMENTED:
-            field "description" (nullable string) (return \_ -> Err Nothing),
             field "isDeprecated" boolean (return \_ -> Bool.false),
             field "deprecationReason" (nullable string) (return \_ -> Err Nothing),
         ]
@@ -313,19 +314,10 @@ addIntrospectionSchema = \{ query } ->
             resolve: \_, _ -> { types },
         }
 
-    queryMeta = query.meta
-
     {
-        query: { query &
-            meta: { queryMeta &
-                fields: queryMeta.fields
-                |> List.append typeQueryField.meta
-                |> List.append schemaQueryField.meta,
-            },
-            resolvers: query.resolvers
-            |> Dict.insert typeQueryField.meta.name typeQueryField.resolve
-            |> Dict.insert schemaQueryField.meta.name schemaQueryField.resolve,
-        },
+        query: query
+        |> Gql.Output.addField typeQueryField
+        |> Gql.Output.addField schemaQueryField,
     }
 
 NamedType : [
@@ -388,7 +380,8 @@ inputTestSchema =
                     b: <- required "b" Gql.Input.int,
                 },
                 resolve: \_, { a, b } -> a + b,
-            },
+            }
+            |> describe "Add two numbers",
         ]
 
     { query }
@@ -1014,3 +1007,47 @@ expect
         ]
 
     result == Ok expected
+
+# field description
+expect
+    query =
+        object "Query" [
+            field "me" string { takes: const {}, resolve: \_, _ -> "John" }
+            |> describe "The currently logged in user",
+        ]
+
+    result =
+        document <-
+            parseDocument
+                """
+                query {
+                    __schema {
+                        queryType {
+                            fields {
+                                name
+                                description
+                            }
+                        }
+                    }
+                }
+                """
+            |> Result.try
+
+        execute {
+            schema: { query },
+            document,
+            operation: First,
+            variables: Dict.empty {},
+            rootValue: {},
+        }
+        |> Result.try \val ->
+            Gql.Value.get val [Key "__schema", Key "queryType", Key "fields", Index 0]
+
+    expected =
+        Object [
+            ("name", String "me"),
+            ("description", String "The currently logged in user"),
+        ]
+
+    result == Ok expected
+
