@@ -134,6 +134,13 @@ expect
         ("zero", Int 0),
         ("one", Int 1),
     ]
+    |> get [Key "notThere"]
+    == Err NotFound
+expect
+    Object [
+        ("zero", Int 0),
+        ("one", Int 1),
+    ]
     |> get [Key "one"]
     == Ok (Int 1)
 expect

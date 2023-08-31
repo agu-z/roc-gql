@@ -373,6 +373,8 @@ getNamedType = \type ->
         String | Int | Boolean ->
             Err Unnamed
 
+# TESTS
+
 inputTestSchema =
     query =
         object "Query" [
@@ -397,34 +399,28 @@ inputTestSchema =
 
 expect
     result =
-        document <-
-            parseDocument
-                """
-                query Test($name: String) {
-                    greet
-                    greetWithName: greet(name: $name)
-                    plus(a: 2, b: 3)
-                }
-                """
-            |> Result.try
-
-        execute {
+        testQuery {
             schema: inputTestSchema,
-            document,
-            operation: First,
+            query:
+            """
+            query Test($name: String) {
+                greet
+                greetWithName: greet(name: $name)
+                plus(a: 2, b: 3)
+            }
+            """,
             variables: Dict.fromList [("name", String "Matt")],
-            rootValue: {},
+            path: [],
         }
 
-    result
-    == Ok
-        (
-            Object [
-                ("greet", String "Hi, friend!"),
-                ("greetWithName", String "Hi, Matt!"),
-                ("plus", Int 5),
-            ]
-        )
+    expected =
+        Object [
+            ("greet", String "Hi, friend!"),
+            ("greetWithName", String "Hi, Matt!"),
+            ("plus", Int 5),
+        ]
+
+    result == Ok expected
 
 refsTestSchema =
     query =
@@ -475,32 +471,34 @@ refsTestSchema =
 
 expect
     result =
-        document <-
-            parseDocument
-                """
-                query {
-                    lastOrder {
-                        __typename
+        testQuery {
+            schema: refsTestSchema,
+            query:
+            """
+            query {
+                lastOrder {
+                    __typename
+                    id
+                    status
+                    products {
                         id
-                        status
-                        products {
-                            id
-                            name
-                            description
-                            stock
-                        }
+                        name
+                        description
+                        stock
                     }
                 }
-                """
-            |> Result.try
-
-        execute {
-            schema: refsTestSchema,
-            document,
-            operation: First,
-            variables: Dict.empty {},
-            rootValue: {},
+            }
+            """,
+            path: [Key "lastOrder"],
         }
+
+    expected =
+        Object [
+            ("__typename", String "Order"),
+            ("id", Int 1),
+            ("status", Enum "PLACED"),
+            ("products", expectedProducts),
+        ]
 
     expectedProducts =
         List [
@@ -523,92 +521,68 @@ expect
                 ("stock", Int 15),
             ],
         ]
-
-    expected = Object [
-        (
-            "lastOrder",
-            Object [
-                ("__typename", String "Order"),
-                ("id", Int 1),
-                ("status", Enum "PLACED"),
-                ("products", expectedProducts),
-            ],
-        ),
-    ]
 
     result == Ok expected
 
-# FRAGMENT SPREAD TESTS
+# FRAGMENT SPREAD
 
 expect
     result =
-        document <-
-            parseDocument
-                """
-                query {
-                    lastOrder {
-                        __typename
-                        ...Order
-                        products {
-                            ...Product
-                        }
+        testQuery {
+            schema: refsTestSchema,
+            query:
+            """
+            query {
+                lastOrder {
+                    __typename
+                    ...Order
+                    products {
+                        ...Product
                     }
                 }
+            }
 
-                fragment Order on Order {
-                    id
-                    status
-                }
+            fragment Order on Order {
+                id
+                status
+            }
 
-                fragment Product on Product {
-                    id
-                    name
-                    description
-                    stock
-                }
-                """
-            |> Result.try
-
-        execute {
-            schema: refsTestSchema,
-            document,
-            operation: First,
-            variables: Dict.empty {},
-            rootValue: {},
+            fragment Product on Product {
+                id
+                name
+                description
+                stock
+            }
+            """,
+            path: [Key "lastOrder"],
         }
 
-    expectedProducts =
-        List [
-            Object [
-                ("id", Int 1),
-                ("name", String "Pencil"),
-                ("description", String "To write stuff"),
-                ("stock", Int 30),
-            ],
-            Object [
-                ("id", Int 2),
-                ("name", String "Notebook"),
-                ("description", Null),
-                ("stock", Int 23),
-            ],
-            Object [
-                ("id", Int 3),
-                ("name", String "Ruler"),
-                ("description", Null),
-                ("stock", Int 15),
-            ],
-        ]
-
     expected = Object [
-        (
-            "lastOrder",
-            Object [
-                ("__typename", String "Order"),
-                ("id", Int 1),
-                ("status", Enum "PLACED"),
-                ("products", expectedProducts),
-            ],
-        ),
+        ("__typename", String "Order"),
+        ("id", Int 1),
+        ("status", Enum "PLACED"),
+        ("products", expectedProducts),
+    ]
+
+    expectedProducts = List [
+        Object [
+            ("id", Int 1),
+            ("name", String "Pencil"),
+            ("description", String "To write stuff"),
+            ("stock", Int 30),
+        ],
+        Object [
+            ("id", Int 2),
+            ("name", String "Notebook"),
+            ("description", Null),
+            ("stock", Int 23),
+        ],
+        Object [
+            ("id", Int 3),
+            ("name", String "Ruler"),
+            ("description", Null),
+            ("stock", Int 15),
+        ],
     ]
 
     result == Ok expected
@@ -618,14 +592,163 @@ expect
 # __type for object
 expect
     result =
-        document <-
-            parseDocument
-                """
-                query {
-                    order: __type(name: "Order") {
-                        kind
+        testQuery {
+            schema: refsTestSchema,
+            query:
+            """
+            query {
+                order: __type(name: "Order") {
+                    kind
+                    name
+                    fields {
                         name
-                        fields {
+                        type {
+                            kind
+                            name
+                            ofType {
+                                kind
+                                name
+                                ofType {
+                                    kind
+                                    name
+                                    ofType {
+                                        kind
+                                        name
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            """,
+            path: [Key "order"],
+        }
+
+    expected =
+        Object [
+            ("kind", Enum "OBJECT"),
+            ("name", String "Order"),
+            (
+                "fields",
+                List [
+                    Object nameField,
+                    Object statusField,
+                    Object productsField,
+                ],
+            ),
+        ]
+
+    nameField = [
+        ("name", String "id"),
+        (
+            "type",
+            Object [
+                ("kind", Enum "NON_NULL"),
+                ("name", Null),
+                (
+                    "ofType",
+                    Object [
+                        ("kind", Enum "SCALAR"),
+                        ("name", String "Int"),
+                        ("ofType", Null),
+                    ],
+                ),
+            ],
+        ),
+    ]
+
+    statusField = [
+        ("name", String "status"),
+        (
+            "type",
+            Object [
+                ("kind", Enum "ENUM"),
+                ("name", String "OrderStatus"),
+                ("ofType", Null),
+            ]
+            |> nonNullObj,
+        ),
+    ]
+
+    productsField = [
+        ("name", String "products"),
+        (
+            "type",
+            Object [
+                ("kind", Enum "OBJECT"),
+                ("name", String "Product"),
+                ("ofType", Null),
+            ]
+            |> nonNullObj
+            |> listObj
+            |> nonNullObj,
+        ),
+    ]
+
+    nonNullObj = \t ->
+        Object [
+            ("kind", Enum "NON_NULL"),
+            ("name", Null),
+            ("ofType", t),
+        ]
+
+    listObj = \t ->
+        Object [
+            ("kind", Enum "LIST"),
+            ("name", Null),
+            ("ofType", t),
+        ]
+
+    result == Ok expected
+
+# __type for enum
+expect
+    result =
+        testQuery {
+            schema: refsTestSchema,
+            query:
+            """
+            {
+                orderStatus: __type(name: "OrderStatus") {
+                    kind
+                    name
+                    enumValues {
+                        name
+                    }
+                }
+            }
+            """,
+            path: [Key "orderStatus"],
+        }
+
+    expected =
+        Object [
+            ("kind", Enum "ENUM"),
+            ("name", String "OrderStatus"),
+            (
+                "enumValues",
+                List [
+                    Object [("name", String "PLACED")],
+                    Object [("name", String "DELIVERED")],
+                ],
+            ),
+        ]
+
+    result == Ok expected
+
+## field arguments
+expect
+    result =
+        testQuery {
+            schema: inputTestSchema,
+            query:
+            """
+            query {
+                query: __type(name: "Query") {
+                    fields {
+                        name
+                        args {
                             name
                             type {
                                 kind
@@ -646,374 +769,169 @@ expect
                         }
                     }
                 }
-                """
-            |> Result.try
-
-        execute {
-            schema: refsTestSchema,
-            document,
-            operation: First,
-            variables: Dict.empty {},
-            rootValue: {},
+            }
+            """,
+            path: [Key "query", Key "fields"],
         }
 
     expected =
+        List [
+            Object [
+                ("name", String "greet"),
+                ("args", List greetArgs),
+            ],
+            Object [
+                ("name", String "plus"),
+                ("args", List plusArgs),
+            ],
+        ]
+
+    greetArgs = [
         Object [
+            ("name", String "name"),
             (
-                "order",
+                "type",
                 Object [
-                    ("kind", Enum "OBJECT"),
-                    ("name", String "Order"),
+                    ("kind", Enum "SCALAR"),
+                    ("name", String "String"),
+                    ("ofType", Null),
+                ],
+            ),
+        ],
+    ]
+
+    plusArgs = [
+        Object [
+            ("name", String "a"),
+            (
+                "type",
+                Object [
+                    ("kind", Enum "NON_NULL"),
+                    ("name", Null),
                     (
-                        "fields",
-                        List [
-                            Object [
-                                ("name", String "id"),
-                                (
-                                    "type",
-                                    Object [
-                                        ("kind", Enum "NON_NULL"),
-                                        ("name", Null),
-                                        (
-                                            "ofType",
-                                            Object [
-                                                ("kind", Enum "SCALAR"),
-                                                ("name", String "Int"),
-                                                ("ofType", Null),
-                                            ],
-                                        ),
-                                    ],
-                                ),
-                            ],
-                            Object [
-                                ("name", String "status"),
-                                (
-                                    "type",
-                                    Object [
-                                        ("kind", Enum "NON_NULL"),
-                                        ("name", Null),
-                                        (
-                                            "ofType",
-                                            Object [
-                                                ("kind", Enum "ENUM"),
-                                                ("name", String "OrderStatus"),
-                                                ("ofType", Null),
-                                            ],
-                                        ),
-                                    ],
-                                ),
-                            ],
-                            Object [
-                                ("name", String "products"),
-                                (
-                                    "type",
-                                    Object [
-                                        ("kind", Enum "NON_NULL"),
-                                        ("name", Null),
-                                        (
-                                            "ofType",
-                                            Object [
-                                                ("kind", Enum "LIST"),
-                                                ("name", Null),
-                                                (
-                                                    "ofType",
-                                                    Object [
-                                                        ("kind", Enum "NON_NULL"),
-                                                        ("name", Null),
-                                                        (
-                                                            "ofType",
-                                                            Object [
-                                                                ("kind", Enum "OBJECT"),
-                                                                ("name", String "Product"),
-                                                                ("ofType", Null),
-                                                            ],
-                                                        ),
-                                                    ],
-                                                ),
-                                            ],
-                                        ),
-                                    ],
-                                ),
-                            ],
+                        "ofType",
+                        Object [
+                            ("kind", Enum "SCALAR"),
+                            ("name", String "Int"),
+                            ("ofType", Null),
                         ],
                     ),
                 ],
             ),
-        ]
-
-    result == Ok expected
-
-# __type for enum
-expect
-    result =
-        document <-
-            parseDocument
-                """
-                query {
-                    orderStatus: __type(name: "OrderStatus") {
-                        kind
-                        name
-                        enumValues {
-                            name
-                        }
-                    }
-                }
-                """
-            |> Result.try
-
-        execute {
-            schema: refsTestSchema,
-            document,
-            operation: First,
-            variables: Dict.empty {},
-            rootValue: {},
-        }
-
-    expected =
+        ],
         Object [
+            ("name", String "b"),
             (
-                "orderStatus",
+                "type",
                 Object [
-                    ("kind", Enum "ENUM"),
-                    ("name", String "OrderStatus"),
+                    ("kind", Enum "NON_NULL"),
+                    ("name", Null),
                     (
-                        "enumValues",
-                        List [
-                            Object [("name", String "PLACED")],
-                            Object [("name", String "DELIVERED")],
+                        "ofType",
+                        Object [
+                            ("kind", Enum "SCALAR"),
+                            ("name", String "Int"),
+                            ("ofType", Null),
                         ],
                     ),
                 ],
             ),
-        ]
-
-    result == Ok expected
-
-# field arguments
-expect
-    result =
-        document <-
-            parseDocument
-                """
-                query {
-                    query: __type(name: "Query") {
-                        fields {
-                            name
-                            args {
-                                name
-                                type {
-                                    kind 
-                                    name
-                                    ofType {
-                                        kind
-                                        name
-                                        ofType {
-                                            kind
-                                            name
-                                            ofType {
-                                                kind
-                                                name
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                """
-            |> Result.try
-
-        execute {
-            schema: inputTestSchema,
-            document,
-            operation: First,
-            variables: Dict.empty {},
-            rootValue: {},
-        }
-
-    expected =
-        Object [
-            (
-                "query",
-                Object [
-                    (
-                        "fields",
-                        List [
-                            Object [
-                                ("name", String "greet"),
-                                (
-                                    "args",
-                                    List [
-                                        Object [
-                                            ("name", String "name"),
-                                            (
-                                                "type",
-                                                Object [
-                                                    ("kind", Enum "SCALAR"),
-                                                    ("name", String "String"),
-                                                    ("ofType", Null),
-                                                ],
-                                            ),
-                                        ],
-                                    ],
-                                ),
-                            ],
-                            Object [
-                                ("name", String "plus"),
-                                (
-                                    "args",
-                                    List [
-                                        Object [
-                                            ("name", String "a"),
-                                            (
-                                                "type",
-                                                Object [
-                                                    ("kind", Enum "NON_NULL"),
-                                                    ("name", Null),
-                                                    (
-                                                        "ofType",
-                                                        Object [
-                                                            ("kind", Enum "SCALAR"),
-                                                            ("name", String "Int"),
-                                                            ("ofType", Null),
-                                                        ],
-                                                    ),
-                                                ],
-                                            ),
-                                        ],
-                                        Object [
-                                            ("name", String "b"),
-                                            (
-                                                "type",
-                                                Object [
-                                                    ("kind", Enum "NON_NULL"),
-                                                    ("name", Null),
-                                                    (
-                                                        "ofType",
-                                                        Object [
-                                                            ("kind", Enum "SCALAR"),
-                                                            ("name", String "Int"),
-                                                            ("ofType", Null),
-                                                        ],
-                                                    ),
-                                                ],
-                                            ),
-                                        ],
-                                    ],
-                                ),
-                            ],
-                        ],
-                    ),
-                ],
-            ),
-        ]
+        ],
+    ]
 
     result == Ok expected
 
 # __schema
 expect
     result =
-        document <-
-            parseDocument
-                """
-                query {
-                    __schema {
-                        queryType {
+        testQuery {
+            schema: refsTestSchema,
+            query:
+            """
+            {
+                __schema {
+                    queryType {
+                        name
+                    }
+                    types {
+                        name
+                        fields {
                             name
                         }
-                        types {
+                        enumValues {
                             name
-                            fields {
-                                name
-                            }
-                            enumValues {
-                                name
-                            }
                         }
                     }
                 }
-                """
-            |> Result.try
-
-        execute {
-            schema: refsTestSchema,
-            document,
-            operation: First,
-            variables: Dict.empty {},
-            rootValue: {},
+            }
+            """,
+            path: [Key "__schema"],
         }
 
     expected =
         Object [
+            ("queryType", Object [("name", String "Query")]),
+            ("types", List expectedTypes),
+        ]
+
+    expectedTypes = [
+        Object [
+            ("name", String "Query"),
+            ("fields", List [Object [("name", String "lastOrder")]]),
+            ("enumValues", Null),
+        ],
+        Object [
+            ("name", String "String"),
+            ("fields", Null),
+            ("enumValues", Null),
+        ],
+        Object [
+            ("name", String "Int"),
+            ("fields", Null),
+            ("enumValues", Null),
+        ],
+        Object [
+            ("name", String "Boolean"),
+            ("fields", Null),
+            ("enumValues", Null),
+        ],
+        Object [
+            ("name", String "Order"),
             (
-                "__schema",
-                Object [
-                    ("queryType", Object [("name", String "Query")]),
-                    (
-                        "types",
-                        List [
-                            Object [
-                                ("name", String "Query"),
-                                ("fields", List [Object [("name", String "lastOrder")]]),
-                                ("enumValues", Null),
-                            ],
-                            Object [
-                                ("name", String "String"),
-                                ("fields", Null),
-                                ("enumValues", Null),
-                            ],
-                            Object [
-                                ("name", String "Int"),
-                                ("fields", Null),
-                                ("enumValues", Null),
-                            ],
-                            Object [
-                                ("name", String "Boolean"),
-                                ("fields", Null),
-                                ("enumValues", Null),
-                            ],
-                            Object [
-                                ("name", String "Order"),
-                                (
-                                    "fields",
-                                    List [
-                                        Object [("name", String "id")],
-                                        Object [("name", String "status")],
-                                        Object [("name", String "products")],
-                                    ],
-                                ),
-                                ("enumValues", Null),
-                            ],
-                            Object [
-                                ("name", String "OrderStatus"),
-                                ("fields", Null),
-                                (
-                                    "enumValues",
-                                    List [
-                                        Object [("name", String "PLACED")],
-                                        Object [("name", String "DELIVERED")],
-                                    ],
-                                ),
-                            ],
-                            Object [
-                                ("name", String "Product"),
-                                (
-                                    "fields",
-                                    List [
-                                        Object [("name", String "id")],
-                                        Object [("name", String "name")],
-                                        Object [("name", String "description")],
-                                        Object [("name", String "stock")],
-                                    ],
-                                ),
-                                ("enumValues", Null),
-                            ],
-                        ],
-                    ),
+                "fields",
+                List [
+                    Object [("name", String "id")],
+                    Object [("name", String "status")],
+                    Object [("name", String "products")],
                 ],
             ),
-        ]
+            ("enumValues", Null),
+        ],
+        Object [
+            ("name", String "OrderStatus"),
+            ("fields", Null),
+            (
+                "enumValues",
+                List [
+                    Object [("name", String "PLACED")],
+                    Object [("name", String "DELIVERED")],
+                ],
+            ),
+        ],
+        Object [
+            ("name", String "Product"),
+            (
+                "fields",
+                List [
+                    Object [("name", String "id")],
+                    Object [("name", String "name")],
+                    Object [("name", String "description")],
+                    Object [("name", String "stock")],
+                ],
+            ),
+            ("enumValues", Null),
+        ],
+    ]
 
     result == Ok expected
 
@@ -1108,14 +1026,14 @@ expect
 
 # Test helpers
 
-testQuery = \{ schema, query, path } ->
+testQuery = \{ schema, query, path, variables ? Dict.empty {} } ->
     document <- parseDocument query |> Result.try
 
     execute {
         schema,
         document,
         operation: First,
-        variables: Dict.empty {},
+        variables,
         rootValue: {},
     }
     |> Result.try
