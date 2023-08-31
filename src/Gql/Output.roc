@@ -18,6 +18,7 @@ interface Gql.Output
         addField,
         resolveObject,
         describe,
+        deprecated,
     ] imports [
         Gql.Document.{ CanSelection, Document },
         Gql.Value.{ Value },
@@ -40,9 +41,10 @@ TypeMeta : [
             name : Str,
             fields : List {
                 name : Str,
-                description : Result Str [Nothing],
                 type : TypeMeta,
                 arguments : List Argument,
+                description : Result Str [Nothing],
+                deprecationReason : Result Str [Nothing],
             },
         },
     Nullable TypeMeta,
@@ -82,6 +84,7 @@ Field a := {
     implements [
         Documentable {
             describe: describeField,
+            deprecated: deprecatedField,
         },
     ]
 
@@ -89,11 +92,16 @@ describeField = \@Field f, description ->
     fieldMeta = f.meta
     @Field { f & meta: { fieldMeta & description: Ok description } }
 
+deprecatedField = \@Field f, reason ->
+    fieldMeta = f.meta
+    @Field { f & meta: { fieldMeta & deprecationReason: Ok reason } }
+
 FieldMeta : {
     name : Str,
-    description : Result Str [Nothing],
     type : TypeMeta,
     arguments : List Argument,
+    description : Result Str [Nothing],
+    deprecationReason : Result Str [Nothing],
 }
 
 FieldResolve a : a, Dict Str Value, List CanSelection, OpContext -> Result Value ResolveErr
@@ -178,9 +186,10 @@ field :
 field = \name, returns, { takes, resolve } -> @Field {
         meta: {
             name,
-            description: Err Nothing,
             type: returns.type,
             arguments: Gql.Input.arguments takes,
+            description: Err Nothing,
+            deprecationReason: Err Nothing,
         },
         resolve: \obj, args, selection, opCtx ->
             args
@@ -226,3 +235,4 @@ resolveObject = \obj, a, selectionSet, opCtx ->
 
 Documentable implements
     describe : v, Str -> v where v implements Documentable
+    deprecated : v, Str -> v where v implements Documentable

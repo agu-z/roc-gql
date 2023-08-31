@@ -19,6 +19,7 @@ interface Gql.Schema
             object,
             field,
             describe,
+            deprecated,
             resolveObject,
         },
         Gql.Input.{ const, required, optional },
@@ -125,10 +126,8 @@ addIntrospectionSchema = \{ query } ->
             field "type" typeRef (return .type),
             field "args" (listOf (ref inputValue)) (return .arguments),
             field "description" (nullable string) (return .description),
-
-            # NOT IMPLEMENTED:
-            field "isDeprecated" boolean (return \_ -> Bool.false),
-            field "deprecationReason" (nullable string) (return \_ -> Err Nothing),
+            field "isDeprecated" boolean (return \f -> Result.isOk f.deprecationReason),
+            field "deprecationReason" (nullable string) (return .deprecationReason),
         ]
 
     # Compiler bugs prevent us from having a normal recursive object
@@ -1008,12 +1007,13 @@ expect
 
     result == Ok expected
 
-# field description
+# field docs
 expect
     query =
         object "Query" [
             field "me" string { takes: const {}, resolve: \_, _ -> "John" }
-            |> describe "The currently logged in user",
+            |> describe "The currently logged in user"
+            |> deprecated "Use Query.user instead",
         ]
 
     result =
@@ -1026,6 +1026,8 @@ expect
                             fields {
                                 name
                                 description
+                                isDeprecated
+                                deprecationReason
                             }
                         }
                     }
@@ -1047,6 +1049,8 @@ expect
         Object [
             ("name", String "me"),
             ("description", String "The currently logged in user"),
+            ("isDeprecated", Boolean Bool.true),
+            ("deprecationReason", String "Use Query.user instead"),
         ]
 
     result == Ok expected
