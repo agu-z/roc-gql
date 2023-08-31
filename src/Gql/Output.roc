@@ -17,10 +17,10 @@ interface Gql.Output
         field,
         addField,
         resolveObject,
-        describe,
-        deprecated,
+        objectMeta,
     ] imports [
         Gql.Document.{ CanSelection, Document },
+        Gql.Docs.{ Describe, Deprecate },
         Gql.Value.{ Value },
         Gql.Input.{ Input, Argument },
     ]
@@ -39,6 +39,7 @@ TypeMeta : [
         # Can't use aliases because compiler stack overflows
         {
             name : Str,
+            description : Result Str [Nothing],
             fields : List {
                 name : Str,
                 type : TypeMeta,
@@ -67,13 +68,25 @@ ResolveErr : [
     InvalidEnumValue,
 ]
 
-Object a : {
+Object a := {
     meta : ObjectMeta,
     resolvers : Dict Str (FieldResolve a),
 }
+    implements [
+        Describe {
+            describe: describeObject,
+        },
+        # GraphQL spec doesn't allow objects to be deprecated
+    ]
+
+describeObject : Object a, Str -> Object a
+describeObject = \@Object obj, description ->
+    objMeta = obj.meta
+    @Object { obj & meta: { objMeta & description: Ok description } }
 
 ObjectMeta : {
     name : Str,
+    description : Result Str [Nothing],
     fields : List FieldMeta,
 }
 
@@ -82,17 +95,21 @@ Field a := {
     resolve : FieldResolve a,
 }
     implements [
-        Documentable {
+        Describe {
             describe: describeField,
-            deprecated: deprecatedField,
+        },
+        Deprecate {
+            deprecate: deprecateField,
         },
     ]
 
+describeField : Field a, Str -> Field a
 describeField = \@Field f, description ->
     fieldMeta = f.meta
     @Field { f & meta: { fieldMeta & description: Ok description } }
 
-deprecatedField = \@Field f, reason ->
+deprecateField : Field a, Str -> Field a
+deprecateField = \@Field f, reason ->
     fieldMeta = f.meta
     @Field { f & meta: { fieldMeta & deprecationReason: Ok reason } }
 
@@ -148,32 +165,41 @@ nullable = \itemType -> {
 }
 
 ref : Object a -> Type a
-ref = \obj -> {
+ref = \@Object obj -> {
     type: Ref obj.meta,
-    resolve: \value, selection, opCtx -> resolveObject obj value selection opCtx,
+    resolve: \value, selection, opCtx -> resolveObject (@Object obj) value selection opCtx,
 }
 
 object : Str, List (Field a) -> Object a
 object = \name, fields ->
     len = List.len fields
 
-    default = {
-        meta: { name, fields: List.withCapacity len },
+    default = @Object {
+        meta: {
+            name,
+            description: Err Nothing,
+            fields: List.withCapacity len,
+        },
         resolvers: Dict.withCapacity len,
     }
 
     List.walk fields default addField
 
 addField : Object a, Field a -> Object a
-addField = \obj, @Field f -> {
-    meta: {
-        name: obj.meta.name,
-        fields: obj.meta.fields
-        |> List.append f.meta,
-    },
-    resolvers: obj.resolvers
-    |> Dict.insert f.meta.name f.resolve,
-}
+addField = \@Object obj, @Field f ->
+    @Object {
+        meta: {
+            name: obj.meta.name,
+            description: obj.meta.description,
+            fields: obj.meta.fields
+            |> List.append f.meta,
+        },
+        resolvers: obj.resolvers
+        |> Dict.insert f.meta.name f.resolve,
+    }
+
+objectMeta : Object * -> ObjectMeta
+objectMeta = \@Object obj -> obj.meta
 
 field :
     Str,
@@ -200,7 +226,7 @@ field = \name, returns, { takes, resolve } -> @Field {
     }
 
 resolveObject : Object a, a, List CanSelection, OpContext -> Result Value ResolveErr
-resolveObject = \obj, a, selectionSet, opCtx ->
+resolveObject = \@Object obj, a, selectionSet, opCtx ->
     selectionSet
     |> List.mapTry \CanField opField ->
         outName =
@@ -231,8 +257,3 @@ resolveObject = \obj, a, selectionSet, opCtx ->
             (outName, value)
     |> Result.map Object
 
-# Docs
-
-Documentable implements
-    describe : v, Str -> v where v implements Documentable
-    deprecated : v, Str -> v where v implements Documentable

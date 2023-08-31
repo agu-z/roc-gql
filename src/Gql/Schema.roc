@@ -18,10 +18,9 @@ interface Gql.Schema
             ref,
             object,
             field,
-            describe,
-            deprecated,
             resolveObject,
         },
+        Gql.Docs.{ describe, deprecate },
         Gql.Input.{ const, required, optional },
         Gql.Enum,
     ]
@@ -73,13 +72,16 @@ addIntrospectionSchema : { query : Object a } -> { query : Object a }
 addIntrospectionSchema = \{ query } ->
     # TODO: Spec compliant
     # TODO: Include introspection schema itself
+
+    queryMeta = Gql.Output.objectMeta query
+
     types =
         Dict.withCapacity 32
-        |> Dict.insert query.meta.name (Object query.meta)
+        |> Dict.insert queryMeta.name (Object queryMeta)
         |> Dict.insert "String" (Scalar "String")
         |> Dict.insert "Int" (Scalar "Int")
         |> Dict.insert "Boolean" (Scalar "Boolean")
-        |> gatherNamedTypes query.meta.fields
+        |> gatherNamedTypes queryMeta.fields
 
     return = \fn -> { takes: const {}, resolve: \v, _ -> fn v }
 
@@ -133,7 +135,11 @@ addIntrospectionSchema = \{ query } ->
     # Compiler bugs prevent us from having a normal recursive object
     # For now, we're just returning fields relevant to clients regardless of selection
     typeRef = {
-        type: Ref { name: "__Type", fields: [] },
+        type: Ref {
+            name: "__Type",
+            description: Err Nothing,
+            fields: [],
+        },
         resolve: \t, _, _ -> Ok (encodeTypeRef t),
     }
 
@@ -210,7 +216,11 @@ addIntrospectionSchema = \{ query } ->
     # TODO: Should we unify input & output types somehow?
     inputTypeRef : Gql.Output.Type Gql.Input.TypeMeta
     inputTypeRef = {
-        type: Ref { name: "__Type", fields: [] },
+        type: Ref {
+            name: "__Type",
+            description: Err Nothing,
+            fields: [],
+        },
         resolve: \t, _, _ -> Ok (encodeInputTypeRef t),
     }
 
@@ -272,7 +282,7 @@ addIntrospectionSchema = \{ query } ->
                 {
                     kind: .object,
                     name: Ok obj.name,
-                    description: Err Nothing,
+                    description: obj.description,
                     fields: Ok obj.fields,
                     enumValues: Err Nothing,
                 }
@@ -305,7 +315,7 @@ addIntrospectionSchema = \{ query } ->
 
     # For some reason, I need to define this outside of schemaObj
     # Otherwise I get "Error in alias analysis"
-    queryType = namedTypeToRecord (Object query.meta)
+    queryType = namedTypeToRecord (Object queryMeta)
 
     schemaQueryField =
         field "__schema" (ref schemaObj) {
@@ -1007,43 +1017,84 @@ expect
 
     result == Ok expected
 
-# field docs
-expect
+# DOCS:
+
+docsTestSchema =
     query =
         object "Query" [
-            field "me" string { takes: const {}, resolve: \_, _ -> "John" }
+            field "me" (ref user) {
+                takes: const {},
+                resolve: \_, _ -> { name: "John" },
+            }
             |> describe "The currently logged in user"
-            |> deprecated "Use Query.user instead",
+            |> deprecate "Use Query.user instead",
         ]
+        |> describe "All the queries"
 
-    result =
-        document <-
-            parseDocument
-                """
-                query {
-                    __schema {
-                        queryType {
-                            fields {
-                                name
-                                description
-                                isDeprecated
-                                deprecationReason
-                            }
-                        }
+    user =
+        object "User" [
+            field "name" string { takes: const {}, resolve: \u, _ -> u.name },
+        ]
+        |> describe "A person or bot"
+
+    { query }
+
+# Objects
+expect
+    result = testQuery {
+        schema: docsTestSchema,
+        query:
+        """
+        {
+            user: __type(name: "User") {
+                description
+            }
+        }
+        """,
+        path: [Key "user", Key "description"],
+    }
+
+    result == Ok (String "A person or bot")
+
+expect
+    result = testQuery {
+        schema: docsTestSchema,
+        query:
+        """
+        {
+            __schema {
+                queryType {
+                    description
+                }
+            }
+        }
+        """,
+        path: [Key "__schema", Key "queryType", Key "description"],
+    }
+
+    result == Ok (String "All the queries")
+
+# Object Fields
+expect
+    result = testQuery {
+        schema: docsTestSchema,
+        query:
+        """
+        {
+            __schema {
+                queryType {
+                    fields {
+                        name
+                        description
+                        isDeprecated
+                        deprecationReason
                     }
                 }
-                """
-            |> Result.try
-
-        execute {
-            schema: { query },
-            document,
-            operation: First,
-            variables: Dict.empty {},
-            rootValue: {},
+            }
         }
-        |> Result.try \val ->
-            Gql.Value.get val [Key "__schema", Key "queryType", Key "fields", Index 0]
+        """,
+        path: [Key "__schema", Key "queryType", Key "fields", Index 0],
+    }
 
     expected =
         Object [
@@ -1054,4 +1105,19 @@ expect
         ]
 
     result == Ok expected
+
+# Test helpers
+
+testQuery = \{ schema, query, path } ->
+    document <- parseDocument query |> Result.try
+
+    execute {
+        schema,
+        document,
+        operation: First,
+        variables: Dict.empty {},
+        rootValue: {},
+    }
+    |> Result.try
+        \val -> Gql.Value.get val path
 
