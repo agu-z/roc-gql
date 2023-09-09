@@ -4,10 +4,17 @@ interface Gql.Enum
         Case,
         new,
         case,
+        with,
+        withCase,
         type,
     ]
     imports [
-        Gql.Output.{ EnumValue, EnumMeta, Type },
+        Gql.Output.{
+            EnumValue,
+            EnumMeta,
+            EnumCaseMeta,
+            Type,
+        },
         Gql.Docs.{ Describe },
     ]
 
@@ -26,35 +33,58 @@ describeEnum = \@Enum enum, description ->
     enumMeta = enum.meta
     @Enum { enum & meta: { enumMeta & description: Ok description } }
 
-Case := Str
-
-new : Str, b -> Enum b
+new : Str, a -> Enum a
 new = \name, value ->
     @Enum {
         meta: {
             name,
             description: Err Nothing,
-            values: List.withCapacity 5,
+            cases: List.withCapacity 5,
         },
         value,
     }
 
-case : Str -> (Enum (Case -> b) -> Enum b)
+Case := EnumCaseMeta
+    implements [
+        Describe {
+            describe: describeCase,
+        },
+    ]
+
+describeCase : Case, Str -> Case
+describeCase = \@Case meta, description ->
+    @Case { meta & description: Ok description }
+
+case : Str -> Case
 case = \name ->
+    @Case {
+        name,
+        description: Err Nothing,
+    }
+
+with : Case -> (Enum (Case -> a) -> Enum a)
+with = \newCase ->
     \@Enum enum ->
         enumMeta = enum.meta
+
+        (@Case caseMeta) = newCase
+
         @Enum {
             meta: { enumMeta &
-                values: enumMeta.values |> List.append { name },
+                cases: enumMeta.cases |> List.append caseMeta,
             },
-            value: enum.value (@Case name),
+            value: enum.value newCase,
         }
+
+withCase : Str -> (Enum (Case -> b) -> Enum b)
+withCase = \name ->
+    with (case name)
 
 type : Enum cases, (value -> (cases -> Case)) -> Type value
 type = \@Enum enum, encode -> {
     type: Enum enum.meta,
     resolve: \value, _, _ ->
-        (@Case caseStr) = (encode value) enum.value
-        Ok (Enum caseStr),
+        (@Case caseMeta) = (encode value) enum.value
+        Ok (Enum caseMeta.name),
 }
 

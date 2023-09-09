@@ -99,26 +99,26 @@ addIntrospectionSchema = \{ query } ->
             field "possibleTypes" (nullable string) (return \_ -> Err Nothing),
         ]
 
-    enumValue : Object Gql.Output.EnumValue
+    enumValue : Object Gql.Output.EnumCaseMeta
     enumValue =
         object "__EnumValue" [
             field "name" string (return .name),
+            field "description" (nullable string) (return .description),
             # NOT IMPLEMENTED:
-            field "description" (nullable string) (return \_ -> Err Nothing),
             field "isDeprecated" boolean (return \_ -> Bool.false),
             field "deprecationReason" (nullable string) (return \_ -> Err Nothing),
         ]
 
     typeKind =
         Gql.Enum.new "__TypeKind" {
-            scalar: <- Gql.Enum.case "SCALAR",
-            object: <- Gql.Enum.case "OBJECT",
-            interface: <- Gql.Enum.case "INTERFACE",
-            union: <- Gql.Enum.case "UNION",
-            enum: <- Gql.Enum.case "ENUM",
-            inputObject: <- Gql.Enum.case "INPUT_OBJECT",
-            list: <- Gql.Enum.case "LIST",
-            nonNull: <- Gql.Enum.case "NON_NULL",
+            scalar: <- Gql.Enum.withCase "SCALAR",
+            object: <- Gql.Enum.withCase "OBJECT",
+            interface: <- Gql.Enum.withCase "INTERFACE",
+            union: <- Gql.Enum.withCase "UNION",
+            enum: <- Gql.Enum.withCase "ENUM",
+            inputObject: <- Gql.Enum.withCase "INPUT_OBJECT",
+            list: <- Gql.Enum.withCase "LIST",
+            nonNull: <- Gql.Enum.withCase "NON_NULL",
         }
         |> Gql.Enum.type \value -> value
 
@@ -293,7 +293,7 @@ addIntrospectionSchema = \{ query } ->
                     name: Ok enum.name,
                     description: enum.description,
                     fields: Err Nothing,
-                    enumValues: Ok enum.values,
+                    enumValues: Ok enum.cases,
                 }
 
     schemaObj =
@@ -448,8 +448,8 @@ refsTestSchema =
 
     orderStatus =
         Gql.Enum.new "OrderStatus" {
-            placed: <- Gql.Enum.case "PLACED",
-            delivered: <- Gql.Enum.case "DELIVERED",
+            placed: <- Gql.Enum.withCase "PLACED",
+            delivered: <- Gql.Enum.withCase "DELIVERED",
         }
         |> Gql.Enum.type \value ->
             when value is
@@ -958,8 +958,11 @@ docsTestSchema =
 
     userRole =
         Gql.Enum.new "UserRole" {
-            admin: <- Gql.Enum.case "ADMIN",
-            guest: <- Gql.Enum.case "GUEST",
+            admin: <- Gql.Enum.withCase "ADMIN",
+            guest: <-
+                Gql.Enum.case "GUEST"
+                |> describe "Can only access resources assigned to them"
+                |> Gql.Enum.with,
         }
         |> describe "A role determines what a user can access and do in the app"
         |> Gql.Enum.type \role ->
@@ -1048,13 +1051,30 @@ expect
         {
             userRole: __type(name: "UserRole") {
                 description
+                enumValues {
+                    name
+                    description
+                }
             }
         }
         """,
-        path: [Key "userRole", Key "description"],
+        path: [Key "userRole"],
     }
 
-    result == Ok (String "A role determines what a user can access and do in the app")
+    result
+    == Ok
+        (
+            Object [
+                ("description", String "A role determines what a user can access and do in the app"),
+                (
+                    "enumValues",
+                    List [
+                        Object [("name", String "ADMIN"), ("description", Null)],
+                        Object [("name", String "GUEST"), ("description", String "Can only access resources assigned to them")],
+                    ],
+                ),
+            ]
+        )
 
 # Test helpers
 

@@ -6,6 +6,7 @@ interface Gql.Output
         FieldMeta,
         ObjectMeta,
         EnumMeta,
+        EnumCaseMeta,
         OpContext,
         string,
         int,
@@ -55,11 +56,12 @@ TypeMeta : [
 EnumMeta : {
     name : Str,
     description : Result Str [Nothing],
-    values : List EnumValue,
+    cases : List EnumCaseMeta,
 }
 
-EnumValue : {
+EnumCaseMeta : {
     name : Str,
+    description : Result Str [Nothing],
 }
 
 ResolveErr : [
