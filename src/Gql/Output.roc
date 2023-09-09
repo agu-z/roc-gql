@@ -62,6 +62,7 @@ EnumMeta : {
 EnumCaseMeta : {
     name : Str,
     description : Result Str [Nothing],
+    deprecationReason : Result Str [Nothing],
 }
 
 ResolveErr : [

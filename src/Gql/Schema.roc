@@ -104,9 +104,8 @@ addIntrospectionSchema = \{ query } ->
         object "__EnumValue" [
             field "name" string (return .name),
             field "description" (nullable string) (return .description),
-            # NOT IMPLEMENTED:
-            field "isDeprecated" boolean (return \_ -> Bool.false),
-            field "deprecationReason" (nullable string) (return \_ -> Err Nothing),
+            field "isDeprecated" boolean (return \v -> Result.isOk v.deprecationReason),
+            field "deprecationReason" (nullable string) (return .deprecationReason),
         ]
 
     typeKind =
@@ -963,6 +962,10 @@ docsTestSchema =
                 Gql.Enum.case "GUEST"
                 |> describe "Can only access resources assigned to them"
                 |> Gql.Enum.with,
+            owner: <-
+                Gql.Enum.case "OWNER"
+                |> deprecate "Use ADMIN instead"
+                |> Gql.Enum.with,
         }
         |> describe "A role determines what a user can access and do in the app"
         |> Gql.Enum.type \role ->
@@ -1054,6 +1057,7 @@ expect
                 enumValues {
                     name
                     description
+                    deprecationReason
                 }
             }
         }
@@ -1069,8 +1073,21 @@ expect
                 (
                     "enumValues",
                     List [
-                        Object [("name", String "ADMIN"), ("description", Null)],
-                        Object [("name", String "GUEST"), ("description", String "Can only access resources assigned to them")],
+                        Object [
+                            ("name", String "ADMIN"),
+                            ("description", Null),
+                            ("deprecationReason", Null),
+                        ],
+                        Object [
+                            ("name", String "GUEST"),
+                            ("description", String "Can only access resources assigned to them"),
+                            ("deprecationReason", Null),
+                        ],
+                        Object [
+                            ("name", String "OWNER"),
+                            ("description", Null),
+                            ("deprecationReason", String "Use ADMIN instead"),
+                        ],
                     ],
                 ),
             ]

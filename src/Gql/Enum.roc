@@ -15,7 +15,7 @@ interface Gql.Enum
             EnumCaseMeta,
             Type,
         },
-        Gql.Docs.{ Describe },
+        Gql.Docs.{ Describe, Deprecate },
     ]
 
 Enum a := {
@@ -49,17 +49,25 @@ Case := EnumCaseMeta
         Describe {
             describe: describeCase,
         },
+        Deprecate {
+            deprecate: deprecateCase,
+        },
     ]
 
 describeCase : Case, Str -> Case
 describeCase = \@Case meta, description ->
     @Case { meta & description: Ok description }
 
+deprecateCase : Case, Str -> Case
+deprecateCase = \@Case meta, reason ->
+    @Case { meta & deprecationReason: Ok reason }
+
 case : Str -> Case
 case = \name ->
     @Case {
         name,
         description: Err Nothing,
+        deprecationReason: Err Nothing,
     }
 
 with : Case -> (Enum (Case -> a) -> Enum a)
