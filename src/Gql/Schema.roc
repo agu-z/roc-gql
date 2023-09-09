@@ -291,7 +291,7 @@ addIntrospectionSchema = \{ query } ->
                 {
                     kind: .enum,
                     name: Ok enum.name,
-                    description: Err Nothing,
+                    description: enum.description,
                     fields: Err Nothing,
                     enumValues: Ok enum.values,
                 }
@@ -942,7 +942,7 @@ docsTestSchema =
         object "Query" [
             field "me" (ref user) {
                 takes: const {},
-                resolve: \_, _ -> { name: "John" },
+                resolve: \_, _ -> { name: "John", role: Admin },
             }
             |> describe "The currently logged in user"
             |> deprecate "Use Query.user instead",
@@ -952,8 +952,23 @@ docsTestSchema =
     user =
         object "User" [
             field "name" string { takes: const {}, resolve: \u, _ -> u.name },
+            field "role" userRole { takes: const {}, resolve: \u, _ -> u.role },
         ]
         |> describe "A person or bot"
+
+    userRole =
+        Gql.Enum.new "UserRole" {
+            admin: <- Gql.Enum.case "ADMIN",
+            guest: <- Gql.Enum.case "GUEST",
+        }
+        |> describe "A role determines what a user can access and do in the app"
+        |> Gql.Enum.type \role ->
+            when role is
+                Admin ->
+                    .admin
+
+                Guest ->
+                    .guest
 
     { query }
 
@@ -1023,6 +1038,23 @@ expect
         ]
 
     result == Ok expected
+
+# Enum
+expect
+    result = testQuery {
+        schema: docsTestSchema,
+        query:
+        """
+        {
+            userRole: __type(name: "UserRole") {
+                description
+            }
+        }
+        """,
+        path: [Key "userRole", Key "description"],
+    }
+
+    result == Ok (String "A role determines what a user can access and do in the app")
 
 # Test helpers
 

@@ -7,37 +7,52 @@ interface Gql.Enum
         type,
     ]
     imports [
-        Gql.Output.{ EnumValue, Type },
+        Gql.Output.{ EnumValue, EnumMeta, Type },
+        Gql.Docs.{ Describe },
     ]
 
 Enum a := {
-    name : Str,
-    values : List EnumValue,
+    meta : EnumMeta,
     value : a,
 }
+    implements [
+        Describe {
+            describe: describeEnum,
+        },
+    ]
+
+describeEnum : Enum a, Str -> Enum a
+describeEnum = \@Enum enum, description ->
+    enumMeta = enum.meta
+    @Enum { enum & meta: { enumMeta & description: Ok description } }
 
 Case := Str
 
 new : Str, b -> Enum b
 new = \name, value ->
     @Enum {
-        name,
-        values: List.withCapacity 5,
+        meta: {
+            name,
+            description: Err Nothing,
+            values: List.withCapacity 5,
+        },
         value,
     }
 
 case : Str -> (Enum (Case -> b) -> Enum b)
 case = \name ->
     \@Enum enum ->
+        enumMeta = enum.meta
         @Enum {
-            name: enum.name,
-            values: enum.values |> List.append { name },
+            meta: { enumMeta &
+                values: enumMeta.values |> List.append { name },
+            },
             value: enum.value (@Case name),
         }
 
 type : Enum cases, (value -> (cases -> Case)) -> Type value
 type = \@Enum enum, encode -> {
-    type: Enum { name: enum.name, values: enum.values },
+    type: Enum enum.meta,
     resolve: \value, _, _ ->
         (@Case caseStr) = (encode value) enum.value
         Ok (Enum caseStr),

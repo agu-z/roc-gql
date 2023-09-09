@@ -54,6 +54,7 @@ TypeMeta : [
 
 EnumMeta : {
     name : Str,
+    description : Result Str [Nothing],
     values : List EnumValue,
 }
 
