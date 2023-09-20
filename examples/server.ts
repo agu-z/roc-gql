@@ -2,9 +2,17 @@
 // In the future I'll replace this example with some webserver platform.
 //
 // Run with:
-// $ deno run --allow-net --allow-run example-server.ts
+// $ deno run --allow-net --allow-run examples/server.ts posts
 //
 // Start listening on port 8080 of localhost.
+
+const program = Deno.args[0];
+
+if (program !== "posts" && program !== "pg") {
+    console.log("Must pass example program as first argument. Options: posts, pg.")
+    Deno.exit(1);
+}
+
 const server = Deno.listen({ port: 8080 });
 console.log(`HTTP webserver running.  Access it at:  http://localhost:8080/`);
 
@@ -18,7 +26,7 @@ async function serveHttp(conn: Deno.Conn) {
     if (requestEvent.request.method === "POST") {
       const body = await requestEvent.request.json();
 
-      const proc = new Deno.Command("./src/example", {
+      const proc = new Deno.Command(`examples/${program}`, {
         args: [body.query.trim()],
       });
       const output = await proc.output();

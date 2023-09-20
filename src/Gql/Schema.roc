@@ -28,15 +28,16 @@ interface Gql.Schema
 execute :
     {
         schema : {
-            query : Object root,
+            query : Object root out,
         },
+        fromValue : Value -> out,
         document : Document,
         operation : [First, ByName Str],
         variables : Dict Str Value,
         rootValue : root,
     }
     -> Result
-        Value
+        (List (Str, out))
         [
             OperationNotFound,
             FragmentNotFound Str,
@@ -59,17 +60,19 @@ execute = \params ->
         |> Result.map List.join
         |> Result.try
 
+    fromStr = \str -> params.fromValue (String str)
+
     params.schema
-    |> addIntrospectionSchema
+    |> addIntrospectionSchema params.fromValue
     |> .query
-    |> resolveObject params.rootValue canSelection {
+    |> resolveObject fromStr params.rootValue canSelection {
         variables: params.variables,
         document: params.document,
     }
     |> Result.mapErr ResolveErr
 
-addIntrospectionSchema : { query : Object a } -> { query : Object a }
-addIntrospectionSchema = \{ query } ->
+addIntrospectionSchema : { query : Object a out }, (Value -> out) -> { query : Object a out }
+addIntrospectionSchema = \{ query }, fromValue ->
     # TODO: Spec compliant
     # TODO: Include introspection schema itself
 
@@ -99,7 +102,7 @@ addIntrospectionSchema = \{ query } ->
             field "possibleTypes" (nullable string) (return \_ -> Err Nothing),
         ]
 
-    enumValue : Object Gql.Output.EnumCaseMeta
+    enumValue : Object Gql.Output.EnumCaseMeta Value
     enumValue =
         object "__EnumValue" [
             field "name" string (return .name),
@@ -202,7 +205,7 @@ addIntrospectionSchema = \{ query } ->
                     ("ofType", encodeNonNull type),
                 ]
 
-    inputValue : Object Gql.Input.Argument
+    inputValue : Object Gql.Input.Argument Value
     inputValue =
         object "__InputValue" [
             field "name" string (return .name),
@@ -213,7 +216,7 @@ addIntrospectionSchema = \{ query } ->
         ]
 
     # TODO: Should we unify input & output types somehow?
-    inputTypeRef : Gql.Output.Type Gql.Input.TypeMeta
+    inputTypeRef : Gql.Output.Type Gql.Input.TypeMeta Value
     inputTypeRef = {
         type: Ref {
             name: "__Type",
@@ -264,6 +267,7 @@ addIntrospectionSchema = \{ query } ->
                 |> Result.map namedTypeToRecord
                 |> Result.mapErr \KeyNotFound -> Nothing,
         }
+        |> Gql.Output.mapField fromValue
 
     # TODO: Do this at namedType object
     namedTypeToRecord = \type ->
@@ -321,6 +325,7 @@ addIntrospectionSchema = \{ query } ->
             takes: const {},
             resolve: \_, _ -> { types },
         }
+        |> Gql.Output.mapField fromValue
 
     {
         query: query
@@ -1104,7 +1109,9 @@ testQuery = \{ schema, query, path, variables ? Dict.empty {} } ->
         operation: First,
         variables,
         rootValue: {},
+        fromValue: \value -> value,
     }
+    |> Result.map Object
     |> Result.try
         \val -> Gql.Value.get val path
 

@@ -16,6 +16,7 @@ interface Gql.Enum
             Type,
         },
         Gql.Docs.{ Describe, Deprecate },
+        Gql.Value.{ Value },
     ]
 
 Enum a := {
@@ -88,7 +89,7 @@ withCase : Str -> (Enum (Case -> b) -> Enum b)
 withCase = \name ->
     with (case name)
 
-type : Enum cases, (value -> (cases -> Case)) -> Type value
+type : Enum cases, (value -> (cases -> Case)) -> Type value Value
 type = \@Enum enum, encode -> {
     type: Enum enum.meta,
     resolve: \value, _, _ ->

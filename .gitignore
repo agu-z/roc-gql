@@ -1,4 +1,8 @@
 src/example
 src/scratch*
+
+examples/posts
+examples/pg
+
 *.roc-format-failed
 *.roc-format-unstable-*

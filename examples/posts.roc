@@ -1,7 +1,18 @@
-interface ExampleSchema
-    exposes [schema]
+app "posts"
+    packages {
+        pf: "https://github.com/roc-lang/basic-cli/releases/download/0.5.0/Cufzl36_SnJ4QbOoEmiJ5dIpUxBvdB3NEySvuH82Wio.tar.br",
+        gql: "../src/main.roc",
+    }
     imports [
-        Gql.Output.{
+        pf.Task.{ Task },
+        pf.Stdout,
+        pf.Arg,
+        gql.Gql.Schema,
+        gql.Gql.Parse,
+        gql.Gql.Input.{ const, required },
+        gql.Gql.Enum,
+        gql.Gql.Value.{ Value },
+        gql.Gql.Output.{
             Object,
             string,
             int,
@@ -11,14 +22,17 @@ interface ExampleSchema
             object,
             field,
         },
-        Gql.Input.{ const, required },
-        Gql.Enum,
+        # Need to be imported to make compiler happy
+        gql.Gql.Document,
     ]
+    provides [main] to pf
+
+# -- SCHEMA --
 
 schema =
     { query }
 
-query : Object {}
+query : Object {} Value
 query =
     object "Query" [
         field "posts" (listOf (ref post)) (ret \_ -> postsData),
@@ -59,7 +73,7 @@ Post : {
     section : [News, Opinion],
 }
 
-post : Object Post
+post : Object Post Value
 post =
     object "Post" [
         field "id" int (ret .id),
@@ -71,8 +85,8 @@ post =
 
 postSection =
     Gql.Enum.new "PostSection" {
-        news: <- Gql.Enum.case "NEWS",
-        opinion: <- Gql.Enum.case "OPINION",
+        news: <- Gql.Enum.withCase "NEWS",
+        opinion: <- Gql.Enum.withCase "OPINION",
     }
     |> Gql.Enum.type \value ->
         when value is
@@ -87,7 +101,7 @@ Author : {
     lastName : Str,
 }
 
-author : Object Author
+author : Object Author Value
 author =
     object "Author" [
         field "firstName" string (ret .firstName),
@@ -95,3 +109,41 @@ author =
     ]
 
 ret = \fn -> { takes: const {}, resolve: \v, _ -> fn v }
+
+# -- PARSE AND EXECUTE --
+
+main : Task {} I32
+main =
+    args <- Arg.list |> Task.await
+
+    when args is
+        [_, inputQuery] ->
+            result =
+                document <-
+                    Gql.Parse.parseDocument inputQuery
+                    |> Result.try
+
+                Gql.Schema.execute {
+                    schema,
+                    document,
+                    operation: First,
+                    variables: Dict.empty {},
+                    rootValue: {},
+                    fromValue: \value -> value,
+                }
+
+            when result is
+                Ok res ->
+                    Stdout.line (Gql.Value.toJson (Object [("data", Object res)]))
+
+                Err (ParsingFailure fail) ->
+                    Stdout.line "Parsing failure: \(fail)"
+
+                Err (ParsingIncomplete fail) ->
+                    Stdout.line "Parsing incomplete: \(fail)"
+
+                Err _ ->
+                    Stdout.line "ERR"
+
+        _ ->
+            Task.err 1

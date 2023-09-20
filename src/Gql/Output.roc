@@ -17,6 +17,7 @@ interface Gql.Output
         object,
         field,
         addField,
+        mapField,
         resolveObject,
         objectMeta,
     ] imports [
@@ -26,9 +27,9 @@ interface Gql.Output
         Gql.Input.{ Input, Argument },
     ]
 
-Type a : {
+Type a out : {
     type : TypeMeta,
-    resolve : a, List CanSelection, OpContext -> Result Value ResolveErr,
+    resolve : a, List CanSelection, OpContext -> Result out ResolveErr,
 }
 
 TypeMeta : [
@@ -72,9 +73,9 @@ ResolveErr : [
     InvalidEnumValue,
 ]
 
-Object a := {
+Object a out := {
     meta : ObjectMeta,
-    resolvers : Dict Str (FieldResolve a),
+    resolvers : Dict Str (FieldResolve a out),
 }
     implements [
         Describe {
@@ -83,7 +84,7 @@ Object a := {
         # GraphQL spec doesn't allow objects to be deprecated
     ]
 
-describeObject : Object a, Str -> Object a
+describeObject : Object a out, Str -> Object a out
 describeObject = \@Object obj, description ->
     objMeta = obj.meta
     @Object { obj & meta: { objMeta & description: Ok description } }
@@ -94,9 +95,9 @@ ObjectMeta : {
     fields : List FieldMeta,
 }
 
-Field a := {
+Field a out := {
     meta : FieldMeta,
-    resolve : FieldResolve a,
+    resolve : FieldResolve a out,
 }
     implements [
         Describe {
@@ -107,12 +108,12 @@ Field a := {
         },
     ]
 
-describeField : Field a, Str -> Field a
+describeField : Field a out, Str -> Field a out
 describeField = \@Field f, description ->
     fieldMeta = f.meta
     @Field { f & meta: { fieldMeta & description: Ok description } }
 
-deprecateField : Field a, Str -> Field a
+deprecateField : Field a out, Str -> Field a out
 deprecateField = \@Field f, reason ->
     fieldMeta = f.meta
     @Field { f & meta: { fieldMeta & deprecationReason: Ok reason } }
@@ -125,32 +126,32 @@ FieldMeta : {
     deprecationReason : Result Str [Nothing],
 }
 
-FieldResolve a : a, Dict Str Value, List CanSelection, OpContext -> Result Value ResolveErr
+FieldResolve a out : a, Dict Str Value, List CanSelection, OpContext -> Result out ResolveErr
 
 OpContext : {
     variables : Dict Str Value,
     document : Document,
 }
 
-string : Type Str
+string : Type Str Value
 string = {
     type: String,
     resolve: \a, _, _ -> Ok (String a),
 }
 
-int : Type I32
+int : Type I32 Value
 int = {
     type: Int,
     resolve: \a, _, _ -> Ok (Int a),
 }
 
-boolean : Type Bool
+boolean : Type Bool Value
 boolean = {
     type: Boolean,
     resolve: \a, _, _ -> Ok (Boolean a),
 }
 
-listOf : Type a -> Type (List a)
+listOf : Type a Value -> Type (List a) Value
 listOf = \itemType -> {
     type: List itemType.type,
     resolve: \list, selection, vars ->
@@ -159,7 +160,7 @@ listOf = \itemType -> {
         |> Result.map List,
 }
 
-nullable : Type a -> Type (Result a [Nothing])
+nullable : Type a Value -> Type (Result a [Nothing]) Value
 nullable = \itemType -> {
     type: Nullable itemType.type,
     resolve: \value, selection, vars ->
@@ -168,13 +169,15 @@ nullable = \itemType -> {
         |> Result.withDefault (Ok Null),
 }
 
-ref : Object a -> Type a
+ref : Object a Value -> Type a Value
 ref = \@Object obj -> {
     type: Ref obj.meta,
-    resolve: \value, selection, opCtx -> resolveObject (@Object obj) value selection opCtx,
+    resolve: \value, selection, opCtx ->
+        resolveObject (@Object obj) String value selection opCtx
+        |> Result.map Object,
 }
 
-object : Str, List (Field a) -> Object a
+object : Str, List (Field a out) -> Object a out
 object = \name, fields ->
     len = List.len fields
 
@@ -189,7 +192,7 @@ object = \name, fields ->
 
     List.walk fields default addField
 
-addField : Object a, Field a -> Object a
+addField : Object a out, Field a out -> Object a out
 addField = \@Object obj, @Field f ->
     @Object {
         meta: {
@@ -202,17 +205,17 @@ addField = \@Object obj, @Field f ->
         |> Dict.insert f.meta.name f.resolve,
     }
 
-objectMeta : Object * -> ObjectMeta
+objectMeta : Object * * -> ObjectMeta
 objectMeta = \@Object obj -> obj.meta
 
 field :
     Str,
-    Type output,
+    Type result out,
     {
         takes : Input input,
-        resolve : a, input -> output,
+        resolve : a, input -> result,
     }
-    -> Field a
+    -> Field a out
 field = \name, returns, { takes, resolve } -> @Field {
         meta: {
             name,
@@ -229,8 +232,17 @@ field = \name, returns, { takes, resolve } -> @Field {
                 returns.resolve (resolve obj input) selection opCtx,
     }
 
-resolveObject : Object a, a, List CanSelection, OpContext -> Result Value ResolveErr
-resolveObject = \@Object obj, a, selectionSet, opCtx ->
+mapField : Field obj a, (a -> b) -> Field obj b
+mapField = \@Field f, toB ->
+    @Field {
+        meta: f.meta,
+        resolve: \obj, args, selection, opCtx ->
+            f.resolve obj args selection opCtx
+            |> Result.map toB,
+    }
+
+resolveObject : Object a out, (Str -> out), a, List CanSelection, OpContext -> Result (List (Str, out)) ResolveErr
+resolveObject = \@Object obj, strToOut, a, selectionSet, opCtx ->
     selectionSet
     |> List.mapTry \CanField opField ->
         outName =
@@ -238,7 +250,7 @@ resolveObject = \@Object obj, a, selectionSet, opCtx ->
             |> Result.withDefault opField.field
 
         if opField.field == "__typename" then
-            Ok (outName, String obj.meta.name)
+            Ok (outName, strToOut obj.meta.name)
         else
             fieldResolver <-
                 obj.resolvers
@@ -259,5 +271,4 @@ resolveObject = \@Object obj, a, selectionSet, opCtx ->
                 |> Result.map
 
             (outName, value)
-    |> Result.map Object
 
