@@ -21,6 +21,7 @@ app "posts"
             ref,
             object,
             field,
+            retField,
         },
         # Need to be imported to make compiler happy
         gql.Gql.Document,
@@ -35,7 +36,7 @@ schema =
 query : Object {} Value
 query =
     object "Query" [
-        field "posts" (listOf (ref post)) (ret \_ -> postsData),
+        retField "posts" (listOf (ref post)) \_ -> postsData,
         field "post" (nullable (ref post)) {
             takes: const {
                 id: <- required "id" Gql.Input.int,
@@ -76,11 +77,11 @@ Post : {
 post : Object Post Value
 post =
     object "Post" [
-        field "id" int (ret .id),
-        field "title" string (ret .title),
-        field "body" (nullable string) (ret .body),
-        field "author" (ref author) (ret .author),
-        field "section" postSection (ret .section),
+        retField "id" int .id,
+        retField "title" string .title,
+        retField "body" (nullable string) .body,
+        retField "author" (ref author) .author,
+        retField "section" postSection .section,
     ]
 
 postSection =
@@ -104,11 +105,9 @@ Author : {
 author : Object Author Value
 author =
     object "Author" [
-        field "firstName" string (ret .firstName),
-        field "lastName" string (ret .lastName),
+        retField "firstName" string .firstName,
+        retField "lastName" string .lastName,
     ]
-
-ret = \fn -> { takes: const {}, resolve: \v, _ -> fn v }
 
 # -- PARSE AND EXECUTE --
 

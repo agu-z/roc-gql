@@ -16,6 +16,7 @@ interface Gql.Output
         ref,
         object,
         field,
+        retField,
         addField,
         mapField,
         resolveObject,
@@ -163,9 +164,9 @@ listOf = \itemType -> {
 nullable : Type a Value -> Type (Result a [Nothing]) Value
 nullable = \itemType -> {
     type: Nullable itemType.type,
-    resolve: \value, selection, vars ->
+    resolve: \value, selection, opCtx ->
         value
-        |> Result.map \item -> itemType.resolve item selection vars
+        |> Result.map \item -> itemType.resolve item selection opCtx
         |> Result.withDefault (Ok Null),
 }
 
@@ -231,6 +232,10 @@ field = \name, returns, { takes, resolve } -> @Field {
             |> Result.try \input ->
                 returns.resolve (resolve obj input) selection opCtx,
     }
+
+retField : Str, Type result out, (a -> result) -> Field a out
+retField = \name, returns, resolve ->
+    field name returns { takes: Gql.Input.none, resolve: \a, _ -> resolve a }
 
 mapField : Field obj a, (a -> b) -> Field obj b
 mapField = \@Field f, toB ->

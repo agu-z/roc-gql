@@ -10,6 +10,7 @@ interface Gql.Input
         const,
         required,
         optional,
+        none,
         string,
         int,
     ]
@@ -48,6 +49,9 @@ const = \value ->
         decoder: \_ -> Ok value,
         arguments: [],
     }
+
+none : Input {}
+none = const {}
 
 Type a : {
     type : TypeMeta,
