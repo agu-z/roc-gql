@@ -243,6 +243,16 @@ addIntrospectionSchema = \{ query }, fromValue ->
                         ("ofType", Null),
                     ]
 
+                Boolean ->
+                    Object [
+                        ("kind", Enum "SCALAR"),
+                        ("name", String "Boolean"),
+                        ("ofType", Null),
+                    ]
+
+                Object _ ->
+                    crash "todo"
+
                 Nullable _ ->
                     crash "unreachable"
 

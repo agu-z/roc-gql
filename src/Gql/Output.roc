@@ -213,7 +213,7 @@ field :
     Str,
     Type result out,
     {
-        takes : Input input,
+        takes : Input input Gql.Input.Anonymous,
         resolve : a, input -> result,
     }
     -> Field a out
