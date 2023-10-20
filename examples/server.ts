@@ -33,6 +33,7 @@ async function serveHttp(conn: Deno.Conn) {
 
       if (output.code == 0) {
         const result = new TextDecoder().decode(output.stdout);
+
         requestEvent.respondWith(
           new Response(result, {
             status: 200,

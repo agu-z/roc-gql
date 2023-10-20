@@ -15,13 +15,14 @@ app "pg"
         gql.Gql.Schema,
         gql.Gql.Parse,
         gql.Gql.Value.{ Value },
-        gql.Gql.Output.{ Object, object, string, int, field },
-        gql.Gql.Input.{ const },
+        gql.Gql.Output.{ Object, object, string, int, field, retField, ResolveErr, Type },
+        gql.Gql.Input.{ const, required },
         # Unused but required because of: https://github.com/roc-lang/roc/issues/5477
         gql.Gql.Document,
         gql.Gql.Enum,
         pg.Pg.Result,
         pg.Pg.Cmd,
+        VideoRental,
     ]
     provides [main] to pf
 
@@ -30,28 +31,81 @@ app "pg"
 schema =
     { query }
 
-query : Object {} (Selection Value)
 query =
     object "Query" [
-        field "one" (selExpr int) (ret \_ -> Sql.i32 42),
-        field "two" (selExpr string) (ret \_ -> Sql.str "sup"),
+        field "films" (listRef film) {
+            takes: const {
+                limit: <- required "limit" Gql.Input.int,
+            },
+            resolve: \{}, { limit } ->
+                films <- Sql.from VideoRental.film
+
+                Sql.select films
+                |> Sql.limit (Num.toNat limit),
+        },
     ]
+
+film =
+    object "Film" [
+        selField "title" string .title,
+        selField "description" string .description,
+        field "actors" (listRef actor) {
+            takes: const {},
+            resolve: \films, {} ->
+                actors <- Sql.from VideoRental.actor
+                filmActors <- Sql.join VideoRental.filmActor (Sql.on .actorId actors.actorId)
+
+                Sql.select actors
+                |> Sql.where (Sql.eq filmActors.filmId films.filmId),
+        },
+    ]
+
+actor =
+    object "Actor" [
+        selField "firstName" string .firstName,
+        selField "lastName" string .lastName,
+    ]
+
+# HELPERS
+
+selField = \name, type, resolve ->
+    retField name (selExpr type) resolve
 
 selExpr = \t -> {
     type: t.type,
-    resolve: \a, b, c ->
+    resolve: \expr, selection, opCtx ->
         Sql.into \val ->
-            when t.resolve val b c is
+            when t.resolve val selection opCtx is
                 Ok result ->
                     result
 
-                _ ->
-                    crash "fail"
-        |> (Sql.column a)
+                Err _ ->
+                    crash "unreachable"
+        |> (Sql.column expr)
         |> Ok,
 }
 
-ret = \fn -> { takes: const {}, resolve: \v, _ -> fn v }
+RefValue := List (Str, Value)
+
+listRef : Object scope (Sql.Selection Value ResolveErr) -> Type (Sql.Query scope ResolveErr) (Sql.Selection Value ResolveErr)
+listRef = \obj -> {
+    type: List (Ref (Gql.Output.objectMeta obj)),
+    resolve: \queryScope, selection, opCtx ->
+        querySelection =
+            Sql.tryMapQuery queryScope \scope ->
+                selections <-
+                    Gql.Output.resolveObject obj (\str -> Sql.into (String str)) scope selection opCtx
+                    |> Result.map
+
+                selections
+                |> List.map \(name, sel) -> Sql.map sel \value -> (name, value)
+                |> Sql.selectionList
+                |> Sql.map Object
+
+        Sql.into List
+        |> (Sql.rowArray querySelection)
+        |> Ok,
+}
 
 # -- PARSE AND EXECUTE --
 
@@ -81,14 +135,20 @@ task =
                             host: "localhost",
                             port: 5432,
                             user: "postgres",
-                            database: "postgres",
+                            database: "pagalia",
                         }
 
-                    pgRes <-
+                    pgCmd <-
                         selections
                         |> List.map \(name, sel) -> Sql.map sel \value -> (name, value)
                         |> Sql.selectionList
                         |> Sql.querySelection
+                        |> Task.fromResult
+                        |> Task.mapFail ResolveErr
+                        |> Task.await
+
+                    pgRes <-
+                        pgCmd
                         |> Pg.Client.command client
                         |> Task.await
 
