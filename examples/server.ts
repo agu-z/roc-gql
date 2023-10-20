@@ -44,6 +44,7 @@ async function serveHttp(conn: Deno.Conn) {
         );
       } else {
         const result = new TextDecoder().decode(output.stderr);
+                console.log(result);
         requestEvent.respondWith(new Response(result, { status: 500 }));
       }
     } else {

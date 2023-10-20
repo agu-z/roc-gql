@@ -158,13 +158,6 @@ task =
 
             when result is
                 Ok selections ->
-                    client <- Pg.Client.withConnect {
-                            host: "localhost",
-                            port: 5432,
-                            user: "postgres",
-                            database: "pagalia",
-                        }
-
                     pgCmd <-
                         selections
                         |> List.map \(name, sel) -> Sql.map sel \value -> (name, value)
@@ -174,7 +167,14 @@ task =
                         |> Task.mapFail ResolveErr
                         |> Task.await
 
-                    _ <- Stdout.line (Pg.Cmd.inspect pgCmd) |> Task.await
+                    client <- Pg.Client.withConnect {
+                            host: "localhost",
+                            port: 5432,
+                            user: "postgres",
+                            database: "pagalia",
+                        }
+
+                    # _ <- Stdout.line (Pg.Cmd.inspect pgCmd) |> Task.await
 
                     pgRes <-
                         pgCmd

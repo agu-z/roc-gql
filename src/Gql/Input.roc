@@ -3,6 +3,7 @@ interface Gql.Input
         Argument,
         Input,
         TypeMeta,
+        ObjectMeta,
         Type,
         Error,
         Anonymous,
@@ -49,15 +50,20 @@ TypeMeta : [
     Boolean,
     Nullable TypeMeta,
     Object
+        # Can't use ObjectMeta because compiler stack overflows
         {
             name : Str,
             arguments : List {
-                # Can't use aliases because compiler stack overflows
                 name : Str,
                 type : TypeMeta,
             },
         },
 ]
+
+ObjectMeta : {
+    name : Str,
+    arguments : List Argument,
+}
 
 Argument : {
     name : Str,

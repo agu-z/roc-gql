@@ -21,7 +21,7 @@ interface Gql.Schema
             resolveObject,
         },
         Gql.Docs.{ describe, deprecate },
-        Gql.Input.{ const, required, optional },
+        Gql.Input.{ Argument, const, required, optional },
         Gql.Enum,
     ]
 
@@ -84,7 +84,7 @@ addIntrospectionSchema = \{ query }, fromValue ->
         |> Dict.insert "String" (Scalar "String")
         |> Dict.insert "Int" (Scalar "Int")
         |> Dict.insert "Boolean" (Scalar "Boolean")
-        |> gatherNamedTypes queryMeta.fields
+        |> gatherFieldNamedTypes queryMeta.fields
 
     return = \fn -> { takes: const {}, resolve: \v, _ -> fn v }
 
@@ -95,9 +95,9 @@ addIntrospectionSchema = \{ query }, fromValue ->
             field "description" (nullable string) (return .description),
             field "fields" (nullable (listOf (ref fieldObj))) (return .fields),
             field "enumValues" (nullable (listOf (ref enumValue))) (return .enumValues),
+            field "inputFields" (nullable (listOf (ref inputValue))) (return .inputFields), #
             # NOT IMPLEMENTED:
             # Only here so that query doesn't fail
-            field "inputFields" (nullable string) (return \_ -> Err Nothing), #
             field "interfaces" (nullable (listOf string)) (return \_ -> Ok []),
             field "possibleTypes" (nullable string) (return \_ -> Err Nothing),
         ]
@@ -250,8 +250,12 @@ addIntrospectionSchema = \{ query }, fromValue ->
                         ("ofType", Null),
                     ]
 
-                Object _ ->
-                    crash "todo"
+                Object obj ->
+                    Object [
+                        ("kind", Enum "INPUT_OBJECT"),
+                        ("name", String obj.name),
+                        ("ofType", Null),
+                    ]
 
                 Nullable _ ->
                     crash "unreachable"
@@ -288,6 +292,7 @@ addIntrospectionSchema = \{ query }, fromValue ->
                     name: Ok name,
                     description: Err Nothing,
                     fields: Err Nothing,
+                    inputFields: Err Nothing,
                     enumValues: Err Nothing,
                 }
 
@@ -297,6 +302,7 @@ addIntrospectionSchema = \{ query }, fromValue ->
                     name: Ok obj.name,
                     description: obj.description,
                     fields: Ok obj.fields,
+                    inputFields: Err Nothing,
                     enumValues: Err Nothing,
                 }
 
@@ -306,7 +312,19 @@ addIntrospectionSchema = \{ query }, fromValue ->
                     name: Ok enum.name,
                     description: enum.description,
                     fields: Err Nothing,
+                    inputFields: Err Nothing,
                     enumValues: Ok enum.cases,
+                }
+
+            InputObject inputObj ->
+                {
+                    kind: .inputObject,
+                    name: Ok inputObj.name,
+                    # TODO: Add
+                    description: Err Nothing,
+                    fields: Err Nothing,
+                    inputFields: Ok inputObj.arguments,
+                    enumValues: Err Nothing,
                 }
 
     schemaObj =
@@ -346,19 +364,26 @@ addIntrospectionSchema = \{ query }, fromValue ->
 NamedType : [
     Scalar Str,
     Object ObjectMeta,
+    InputObject Gql.Input.ObjectMeta,
     Enum EnumMeta,
     # InputObject, Interface, Union, Scalar
 ]
 
-gatherNamedTypes : Dict Str NamedType, List FieldMeta -> Dict Str NamedType
-gatherNamedTypes = \dict, fields ->
+gatherFieldNamedTypes : Dict Str NamedType, List FieldMeta -> Dict Str NamedType
+gatherFieldNamedTypes = \dict, fields ->
     cdict, cfield <- List.walk fields dict
 
-    when getNamedType cfield.type is
+    cdict
+    |> gatherInputNamedTypes cfield.arguments
+    |> gatherFieldValueNamedTypes cfield.type
+
+gatherFieldValueNamedTypes : Dict Str NamedType, Gql.Output.TypeMeta -> Dict Str NamedType
+gatherFieldValueNamedTypes = \cdict, valueType ->
+    when getNamedOutputType valueType is
         Ok (Object obj) ->
             cdict
             |> Dict.insert obj.name (Object obj)
-            |> gatherNamedTypes obj.fields
+            |> gatherFieldNamedTypes obj.fields
 
         Ok (Enum enum) ->
             Dict.insert cdict enum.name (Enum enum)
@@ -369,8 +394,7 @@ gatherNamedTypes = \dict, fields ->
         Err Unnamed ->
             cdict
 
-getNamedType : Gql.Output.TypeMeta -> Result NamedType [Unnamed]
-getNamedType = \type ->
+getNamedOutputType = \type ->
     when type is
         Ref obj ->
             Ok (Object obj)
@@ -379,10 +403,35 @@ getNamedType = \type ->
             Ok (Enum enum)
 
         List ltype ->
-            getNamedType ltype
+            getNamedOutputType ltype
 
         Nullable ntype ->
-            getNamedType ntype
+            getNamedOutputType ntype
+
+        String | Int | Boolean ->
+            Err Unnamed
+
+gatherInputNamedTypes : Dict Str NamedType, List Argument -> Dict Str NamedType
+gatherInputNamedTypes = \dict, args ->
+    cdict, arg <- List.walk args dict
+
+    when getNamedInputType arg.type is
+        Ok obj ->
+            cdict
+            |> Dict.insert obj.name (InputObject obj)
+            |> gatherInputNamedTypes obj.arguments
+
+        Err Unnamed ->
+            dict
+
+getNamedInputType : Gql.Input.TypeMeta -> Result Gql.Input.ObjectMeta [Unnamed]
+getNamedInputType = \type ->
+    when type is
+        Object obj ->
+            Ok obj
+
+        Nullable ntype ->
+            getNamedInputType ntype
 
         String | Int | Boolean ->
             Err Unnamed
