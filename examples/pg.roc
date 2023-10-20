@@ -18,6 +18,7 @@ app "pg"
         gql.Gql.Output.{ Object, object, string, field, retField, ResolveErr, Type },
         gql.Gql.Input.{ const, required },
         VideoRental,
+        Filter,
         # Unused but required because of: https://github.com/roc-lang/roc/issues/5477
         gql.Gql.Document,
         gql.Gql.Enum,
@@ -36,13 +37,20 @@ query =
         field "films" (listRef film) {
             takes: const {
                 limit: <- required "limit" Gql.Input.int,
+                filter: <- required "filter" filmFilter,
             },
-            resolve: \{}, { limit } ->
+            resolve: \{}, args ->
                 films <- Sql.from VideoRental.film
 
                 Sql.select films
-                |> Sql.limit (Num.toNat limit),
+                |> Sql.limit (Num.toNat args.limit)
+                |> Filter.apply args.filter films,
         },
+    ]
+
+filmFilter =
+    Filter.new "FilmFilter" [
+        Filter.string "title" .title,
     ]
 
 film =
@@ -165,7 +173,7 @@ task =
                         |> Task.mapFail ResolveErr
                         |> Task.await
 
-                    # _ <- Stdout.line (Pg.Cmd.inspect pgCmd) |> Task.await
+                    _ <- Stdout.line (Pg.Cmd.inspect pgCmd) |> Task.await
 
                     pgRes <-
                         pgCmd
