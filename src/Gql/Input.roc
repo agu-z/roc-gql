@@ -11,16 +11,22 @@ interface Gql.Input
         const,
         required,
         optional,
+        optionalList,
         none,
         string,
         int,
         boolean,
         object,
+        toType,
         map,
     ]
     imports [
         Gql.Value.{ Value },
     ]
+
+# This API has grown organically and it's probably due for a redesign!
+
+# TODO: Fail if unrecognized argument is passed in.
 
 Input a name := {
     decoder : Dict Str Value -> Result a Error,
@@ -161,6 +167,56 @@ optional = \name, typeRef ->
         @Input {
             decoder,
             arguments: fnInput.arguments |> List.append newArg,
+            name: fnInput.name,
+        }
+
+    apply
+
+optionalList : List (Str, Type a) -> (Input (List a -> b) name -> Input b name)
+optionalList = \fields ->
+    # This functionality should probably be expressed a different way.
+    # Combining something like a "sequence" function with a general "apply" function.
+    newArgs = List.map fields \(fieldName, fieldType) -> {
+        name: fieldName,
+        type: Nullable fieldType.type,
+    }
+
+    apply = \@Input fnInput ->
+        decoder = \argValues ->
+            fn <- fnInput.decoder argValues |> Result.try
+
+            fields
+            |> List.mapTry \(fieldName, fieldType) ->
+                when Dict.get argValues fieldName is
+                    Ok argValue ->
+                        when fieldType.decoder argValue is
+                            Ok v ->
+                                Ok (Ok v)
+
+                            Err (InvalidValue Null) ->
+                                Ok (Err Nothing)
+
+                            Err (InvalidValue value) ->
+                                Err {
+                                    path: [fieldName],
+                                    problem: InvalidValue fieldType.type value,
+                                }
+
+                            Err (ObjectFieldErr error) ->
+                                Err {
+                                    path: List.prepend error.path fieldName,
+                                    problem: error.problem,
+                                }
+
+                    Err KeyNotFound ->
+                        Ok (Err Nothing)
+            |> Result.map \result ->
+                List.keepOks result \x -> x
+            |> Result.map fn
+
+        @Input {
+            decoder,
+            arguments: fnInput.arguments |> List.concat newArgs,
             name: fnInput.name,
         }
 
@@ -417,3 +473,4 @@ expect
     values = Dict.fromList [("a", Object [("b", Object [("c", Null)])])]
 
     decode values doubleNestedTest == Err { path: ["a", "b", "c"], problem: NullValue }
+
