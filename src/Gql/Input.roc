@@ -16,6 +16,7 @@ interface Gql.Input
         int,
         boolean,
         object,
+        map,
     ]
     imports [
         Gql.Value.{ Value },
@@ -239,6 +240,24 @@ boolean =
                 Err (InvalidValue value)
 
     { type: Boolean, decoder }
+
+map : Type a, (a -> b) -> Type b
+map = \typeRef, fn -> {
+    type: typeRef.type,
+    decoder: \value -> typeRef.decoder value |> Result.map fn,
+}
+
+expect
+    doubledNum = map int \num -> num * 2
+
+    input =
+        const {
+            num: <- required "num" doubledNum,
+        }
+
+    values = Dict.fromList [("num", Int 123)]
+
+    decode values input == Ok { num: 246 }
 
 # Test pipeline
 
