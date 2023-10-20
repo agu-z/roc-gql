@@ -15,14 +15,14 @@ app "pg"
         gql.Gql.Schema,
         gql.Gql.Parse,
         gql.Gql.Value.{ Value },
-        gql.Gql.Output.{ Object, object, string, int, field, retField, ResolveErr, Type },
+        gql.Gql.Output.{ Object, object, string, field, retField, ResolveErr, Type },
         gql.Gql.Input.{ const, required },
+        VideoRental,
         # Unused but required because of: https://github.com/roc-lang/roc/issues/5477
         gql.Gql.Document,
         gql.Gql.Enum,
         pg.Pg.Result,
         pg.Pg.Cmd,
-        VideoRental,
     ]
     provides [main] to pf
 
@@ -49,7 +49,7 @@ film =
     object "Film" [
         selField "title" string .title,
         selField "description" string .description,
-        field "actors" (listRef actor) {
+        field "actor" (ref actor) {
             takes: const {},
             resolve: \films, {} ->
                 actors <- Sql.from VideoRental.actor
@@ -85,7 +85,25 @@ selExpr = \t -> {
         |> Ok,
 }
 
-RefValue := List (Str, Value)
+ref : Object scope (Sql.Selection Value ResolveErr) -> Type (Sql.Query scope ResolveErr) (Sql.Selection Value ResolveErr)
+ref = \obj -> {
+    type: Ref (Gql.Output.objectMeta obj),
+    resolve: \queryScope, selection, opCtx ->
+        querySelection =
+            Sql.tryMapQuery queryScope \scope ->
+                selections <-
+                    Gql.Output.resolveObject obj (\str -> Sql.into (String str)) scope selection opCtx
+                    |> Result.map
+
+                selections
+                |> List.map \(name, sel) -> Sql.map sel \value -> (name, value)
+                |> Sql.selectionList
+                |> Sql.map Object
+
+        Sql.into \x -> x
+        |> (Sql.row querySelection)
+        |> Ok,
+}
 
 listRef : Object scope (Sql.Selection Value ResolveErr) -> Type (Sql.Query scope ResolveErr) (Sql.Selection Value ResolveErr)
 listRef = \obj -> {
@@ -146,6 +164,8 @@ task =
                         |> Task.fromResult
                         |> Task.mapFail ResolveErr
                         |> Task.await
+
+                    # _ <- Stdout.line (Pg.Cmd.inspect pgCmd) |> Task.await
 
                     pgRes <-
                         pgCmd
