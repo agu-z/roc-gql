@@ -51,6 +51,7 @@ query =
 filmFilter =
     Filter.new "FilmFilter" [
         Filter.string "title" .title,
+        Filter.int "releaseYear" .releaseYear,
     ]
 
 film =

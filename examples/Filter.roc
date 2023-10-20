@@ -1,9 +1,9 @@
 interface Filter
-    exposes [Filter, Field, new, apply, string]
+    exposes [Filter, Field, new, apply, string, int]
     imports [
         gql.Gql.Input.{ Input, Type },
         pg.Sql,
-        pg.Sql.Types.{ PgBool, PgText },
+        pg.Sql.Types.{ PgBool, PgText, PgI32 },
     ]
 
 Filter scope := scope -> List (Sql.Expr PgBool Bool)
@@ -34,6 +34,29 @@ new = \name, fields ->
 apply : Sql.Select a err, Filter scope, scope -> Sql.Select a err
 apply = \select, @Filter toExprs, scope ->
     Sql.where select (Sql.andList (toExprs scope))
+
+makeFilter = \{ name, typeName, options, type, fromValue, toExpr } ->
+    optionType = \cmp -> Gql.Input.map type \value -> \expr -> cmp expr (fromValue value)
+
+    fieldType =
+        Gql.Input.object typeName {
+            options: <-
+                options
+                |> List.map \(opName, opFn) -> (opName, optionType opFn)
+                |> Gql.Input.optionalList,
+        }
+        |> Gql.Input.toType
+        |> Gql.Input.map \args ->
+            fn = \scope ->
+                lhs = toExpr scope
+
+                List.map args.options \op -> op lhs
+
+            fn
+
+    @Field { name, type: fieldType }
+
+# Types
 
 string : Str, (scope -> Sql.Expr PgText *) -> Field scope
 string = \name, toExpr ->
@@ -72,23 +95,21 @@ string = \name, toExpr ->
         toExpr,
     }
 
-makeFilter = \{ name, typeName, options, type, fromValue, toExpr } ->
-    optionType = \cmp -> Gql.Input.map type \value -> \expr -> cmp expr (fromValue value)
+int : Str, (scope -> Sql.Expr PgI32 *) -> Field scope
+int = \name, toExpr ->
+    makeFilter {
+        name,
+        typeName: "IntFilter",
+        options: [
+            ("gt", Sql.gt),
+            ("gte", Sql.gte),
+            ("eq", Sql.eq),
+            ("neq", Sql.neq),
+            ("lt", Sql.lt),
+            ("lte", Sql.lte),
+        ],
+        type: Gql.Input.int,
+        fromValue: Sql.i32,
+        toExpr,
+    }
 
-    fieldType =
-        Gql.Input.object typeName {
-            options: <-
-                options
-                |> List.map \(opName, opFn) -> (opName, optionType opFn)
-                |> Gql.Input.optionalList,
-        }
-        |> Gql.Input.toType
-        |> Gql.Input.map \args ->
-            fn = \scope ->
-                lhs = toExpr scope
-
-                List.map args.options \op -> op lhs
-
-            fn
-
-    @Field { name, type: fieldType }
