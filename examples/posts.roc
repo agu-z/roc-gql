@@ -1,12 +1,13 @@
 app "posts"
     packages {
-        pf: "https://github.com/roc-lang/basic-cli/releases/download/0.5.0/Cufzl36_SnJ4QbOoEmiJ5dIpUxBvdB3NEySvuH82Wio.tar.br",
+        pf: "https://github.com/roc-lang/basic-webserver/releases/download/0.2.0/J6CiEdkMp41qNdq-9L3HGoF2cFkafFlArvfU1RtR4rY.tar.br",
+        json: "https://github.com/lukewilliamboswell/roc-json/releases/download/0.5.0/jEPD_1ZLFiFrBeYKiKvHSisU-E3LZJeenfa9nvqJGeE.tar.br",
         gql: "../src/main.roc",
     }
     imports [
-        pf.Task.{ Task },
-        pf.Stdout,
-        pf.Arg,
+        pf.Task.{ Task, await },
+        pf.Http.{ Request, Response },
+        json.Core,
         gql.Gql.Schema,
         gql.Gql.Parse,
         gql.Gql.Input.{ const, required },
@@ -111,38 +112,58 @@ author =
 
 # -- PARSE AND EXECUTE --
 
-main : Task {} I32
-main =
-    args <- Arg.list |> Task.await
+main : Request -> Task Response []
+main = \req ->
+    when req.body is
+        EmptyBody ->
+            Task.ok {
+                status: 400,
+                headers: [],
+                body: "Expected JSON object with GraphQL query" |> Str.toUtf8,
+            }
 
-    when args is
-        [_, inputQuery] ->
-            result =
-                document <-
-                    Gql.Parse.parseDocument inputQuery
-                    |> Result.try
+        Body { body } ->
+            when Decode.fromBytes body Core.json is
+                Ok json ->
+                    result =
+                        document <-
+                            Gql.Parse.parseDocument json.query
+                            |> Result.try
 
-                Gql.Schema.execute {
-                    schema,
-                    document,
-                    operation: First,
-                    variables: Dict.empty {},
-                    rootValue: {},
-                    fromValue: \value -> value,
-                }
+                        Gql.Schema.execute {
+                            schema,
+                            document,
+                            operation: First,
+                            variables: Dict.empty {},
+                            rootValue: {},
+                            fromValue: \value -> value,
+                        }
 
-            when result is
-                Ok res ->
-                    Stdout.line (Gql.Value.toJson (Object [("data", Object res)]))
+                    when result is
+                        Ok data ->
+                            Task.ok {
+                                status: 200,
+                                headers: [
+                                    {
+                                        name: "Content-Type",
+                                        value: "application/json" |> Str.toUtf8,
+                                    },
+                                ],
+                                body: Object [("data", Object data)]
+                                |> Gql.Value.toJson
+                                |> Str.toUtf8,
+                            }
 
-                Err (ParsingFailure fail) ->
-                    Stdout.line "Parsing failure: \(fail)"
-
-                Err (ParsingIncomplete fail) ->
-                    Stdout.line "Parsing incomplete: \(fail)"
+                        Err _ ->
+                            Task.ok {
+                                status: 400,
+                                headers: [],
+                                body: "Expected JSON object with GraphQL query" |> Str.toUtf8,
+                            }
 
                 Err _ ->
-                    Stdout.line "ERR"
-
-        _ ->
-            Task.err 1
+                    Task.ok {
+                        status: 400,
+                        headers: [],
+                        body: "Expected JSON object with GraphQL query" |> Str.toUtf8,
+                    }
