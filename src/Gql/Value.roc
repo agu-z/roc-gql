@@ -1,5 +1,5 @@
 interface Gql.Value
-    exposes [Value, fromDocument, maybe, toJson, get]
+    exposes [Value, fromDocument, maybe, toJson, get, typeToStr]
     imports [Gql.Document]
 
 Value : [
@@ -13,6 +13,30 @@ Value : [
     # TODO:
     # FloatValue
 ]
+
+typeToStr : Value -> Str
+typeToStr = \value ->
+    when value is
+        Int _ ->
+            "Int"
+
+        String _ ->
+            "String"
+
+        Boolean _ ->
+            "Boolean"
+
+        Null ->
+            "Null"
+
+        Enum _ ->
+            "Enum"
+
+        List _ ->
+            "List"
+
+        Object _ ->
+            "Object"
 
 fromDocument : Gql.Document.Value, Dict Str Value -> Result Value [VarNotFound Str]
 fromDocument = \docValue, variables ->

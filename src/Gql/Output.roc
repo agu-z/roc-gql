@@ -21,6 +21,7 @@ interface Gql.Output
         mapField,
         resolveObject,
         objectMeta,
+        resolveErrToStr,
     ] imports [
         Gql.Document.{ CanSelection, Document },
         Gql.Docs.{ Describe, Deprecate },
@@ -71,8 +72,19 @@ ResolveErr : [
     FieldNotFound Str Str,
     InputErr Gql.Input.Error,
     VarNotFound Str,
-    InvalidEnumValue,
 ]
+
+resolveErrToStr : ResolveErr -> Str
+resolveErrToStr = \err ->
+    when err is
+        FieldNotFound objName fieldName ->
+            "Field `\(fieldName)` not found on `\(objName)`"
+
+        InputErr inputErr ->
+            Gql.Input.errToStr inputErr
+
+        VarNotFound varName ->
+            "Variable \(varName) not found"
 
 Object a out := {
     meta : ObjectMeta,

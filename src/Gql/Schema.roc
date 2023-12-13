@@ -1,5 +1,9 @@
 interface Gql.Schema
-    exposes [execute, inputTestSchema]
+    exposes [
+        execute,
+        inputTestSchema,
+        executeErrToStr,
+    ]
     imports [
         Gql.Document.{ Document, Selection },
         Gql.Parse.{ parseDocument },
@@ -25,6 +29,13 @@ interface Gql.Schema
         Gql.Enum,
     ]
 
+ExecuteErr : [
+    OperationNotFound,
+    FragmentNotFound Str,
+    RecursiveFragment Str,
+    ResolveErr ResolveErr,
+]
+
 execute :
     {
         schema : {
@@ -36,14 +47,7 @@ execute :
         variables : Dict Str Value,
         rootValue : root,
     }
-    -> Result
-        (List (Str, out))
-        [
-            OperationNotFound,
-            FragmentNotFound Str,
-            RecursiveFragment Str,
-            ResolveErr ResolveErr,
-        ]
+    -> Result (List (Str, out)) ExecuteErr
 execute = \params ->
     operation <-
         params.document
@@ -70,6 +74,21 @@ execute = \params ->
         document: params.document,
     }
     |> Result.mapErr ResolveErr
+
+executeErrToStr : ExecuteErr -> Str
+executeErrToStr = \err ->
+    when err is
+        OperationNotFound ->
+            "Operation not found"
+
+        FragmentNotFound name ->
+            "Fragment not found: \(name)"
+
+        RecursiveFragment name ->
+            "Recursive fragment: \(name)"
+
+        ResolveErr resolveErr ->
+            Gql.Output.resolveErrToStr resolveErr
 
 addIntrospectionSchema : { query : Object a out }, (Value -> out) -> { query : Object a out }
 addIntrospectionSchema = \{ query }, fromValue ->

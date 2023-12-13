@@ -20,6 +20,8 @@ interface Gql.Input
         object,
         toType,
         map,
+        errToStr,
+        typeToStr,
     ]
     imports [
         Gql.Value.{ Value },
@@ -44,6 +46,20 @@ Error : {
     ],
 }
 
+errToStr : Error -> Str
+errToStr = \error ->
+    pathStr = "`\(error.path |> Str.joinWith ".")`"
+
+    when error.problem is
+        Missing ->
+            "Missing argument \(pathStr)"
+
+        NullValue ->
+            "Null value for argument \(pathStr)"
+
+        InvalidValue typeMeta value ->
+            "Invalid value for argument \(pathStr). Expected \(typeToStr typeMeta) but got \(Gql.Value.typeToStr value)"
+
 TypeMeta : [
     String,
     Int,
@@ -59,6 +75,25 @@ TypeMeta : [
             },
         },
 ]
+
+typeToStr : TypeMeta -> Str
+typeToStr = \typeMeta ->
+    when typeMeta is
+        String ->
+            "String"
+
+        Int ->
+            "Int"
+
+        Boolean ->
+            "Boolean"
+
+        Nullable inner ->
+            # TODO: Format ! properly
+            "Nullable \(typeToStr inner)"
+
+        Object { name } ->
+            name
 
 ObjectMeta : {
     name : Str,

@@ -5,8 +5,9 @@ app "posts"
         gql: "../src/main.roc",
     }
     imports [
-        pf.Task.{ Task, await },
+        pf.Task.{ Task },
         pf.Http.{ Request, Response },
+        pf.Stdout,
         json.Core,
         gql.Gql.Schema,
         gql.Gql.Parse,
@@ -112,8 +113,8 @@ author =
 
 # -- PARSE AND EXECUTE --
 
-main : Request -> Task Response []
-main = \req ->
+handleReq : Request -> Task Response _
+handleReq = \req ->
     when req.body is
         EmptyBody ->
             Task.ok {
@@ -123,47 +124,71 @@ main = \req ->
             }
 
         Body { body } ->
-            when Decode.fromBytes body Core.json is
-                Ok json ->
-                    result =
-                        document <-
-                            Gql.Parse.parseDocument json.query
-                            |> Result.try
-
-                        Gql.Schema.execute {
-                            schema,
-                            document,
-                            operation: First,
-                            variables: Dict.empty {},
-                            rootValue: {},
-                            fromValue: \value -> value,
-                        }
-
-                    when result is
-                        Ok data ->
-                            Task.ok {
-                                status: 200,
-                                headers: [
-                                    {
-                                        name: "Content-Type",
-                                        value: "application/json" |> Str.toUtf8,
-                                    },
-                                ],
-                                body: Object [("data", Object data)]
-                                |> Gql.Value.toJson
-                                |> Str.toUtf8,
-                            }
-
-                        Err _ ->
-                            Task.ok {
-                                status: 400,
-                                headers: [],
-                                body: "Expected JSON object with GraphQL query" |> Str.toUtf8,
-                            }
-
-                Err _ ->
-                    Task.ok {
-                        status: 400,
-                        headers: [],
-                        body: "Expected JSON object with GraphQL query" |> Str.toUtf8,
+            data <-
+                body
+                |> Decode.fromBytes Core.json
+                |> Result.mapErr JsonErr
+                |> Result.try \json ->
+                    Gql.Parse.parseDocument json.query
+                    |> Result.mapErr ParseErr
+                |> Result.try \document ->
+                    Gql.Schema.execute {
+                        schema,
+                        document,
+                        operation: First,
+                        variables: Dict.empty {},
+                        rootValue: {},
+                        fromValue: \value -> value,
                     }
+                    |> Result.mapErr ExecuteErr
+                |> Task.fromResult
+                |> Task.await
+
+            Task.ok {
+                status: 200,
+                headers: [
+                    {
+                        name: "Content-Type",
+                        value: "application/json" |> Str.toUtf8,
+                    },
+                ],
+                body: Object [("data", Object data)]
+                |> Gql.Value.toJson
+                |> Str.toUtf8,
+            }
+
+main : Request -> Task Response []
+main = \req ->
+    result <- Task.attempt (handleReq req)
+
+    when result is
+        Ok ok ->
+            Task.ok ok
+
+        Err (ExecuteErr err) ->
+            err
+            |> Gql.Schema.executeErrToStr
+            |> respondWithError 400
+
+        Err (SelectionErr err) ->
+            err
+            |> Gql.Output.resolveErrToStr
+            |> respondWithError 400
+
+        Err _ ->
+            respondWithError "Something went wrong" 500
+
+respondWithError : Str, U16 -> Task Response []
+respondWithError = \msg, status ->
+    Task.ok {
+        status,
+        headers: [
+            {
+                name: "Content-Type",
+                value: "application/json" |> Str.toUtf8,
+            },
+        ],
+        body: Object [("error", String msg)]
+        |> Gql.Value.toJson
+        |> Str.toUtf8,
+    }

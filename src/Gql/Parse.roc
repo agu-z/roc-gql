@@ -1,5 +1,5 @@
 interface Gql.Parse
-    exposes [parseDocument]
+    exposes [parseDocument, errToStr]
     imports [
         Parser.Core.{
             Parser,
@@ -41,9 +41,20 @@ interface Gql.Parse
 
 # https://spec.graphql.org/October2021
 
-parseDocument : Str -> Result Document [ParsingFailure Str, ParsingIncomplete Str]
+Error : [ParsingFailure Str, ParsingIncomplete Str]
+
+parseDocument : Str -> Result Document Error
 parseDocument = \input ->
     parseStr document input
+
+errToStr : Error -> Str
+errToStr = \err ->
+    when err is
+        ParsingFailure failure ->
+            "Parse failure: \(failure)"
+
+        ParsingIncomplete incomplete ->
+            "Incomplete parsing error: \(incomplete)"
 
 # Document
 
