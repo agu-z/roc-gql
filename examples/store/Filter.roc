@@ -1,16 +1,16 @@
 interface Filter
-    exposes [Filter, Field, new, apply, string, int]
+    exposes [Filter, Field, new, input, apply, string, int]
     imports [
         gql.Gql.Input.{ Input, Type },
         pg.Sql,
         pg.Sql.Types.{ PgBool, PgText, PgI32 },
     ]
 
-Filter scope := scope -> List (Sql.Expr PgBool Bool)
+Filter scope := scope -> List (Sql.Expr (PgBool {}) Bool)
 
 Field scope := {
     name : Str,
-    type : Type (scope -> List (Sql.Expr PgBool Bool)),
+    type : Type (scope -> List (Sql.Expr (PgBool {}) Bool)),
 }
 
 new : Str, List (Field scope) -> Type (Filter scope)
@@ -31,9 +31,17 @@ new = \name, fields ->
 
         @Filter filterFn
 
-apply : Sql.Select a err, Filter scope, scope -> Sql.Select a err
-apply = \select, @Filter toExprs, scope ->
-    Sql.where select (Sql.andList (toExprs scope))
+input = \filter ->
+    Gql.Input.optional "filter" filter
+
+# apply : Sql.Select a err, Filter scope, scope -> Sql.Select a err
+apply = \select, maybeFilter, scope ->
+    when maybeFilter is
+        Ok (@Filter toExprs) ->
+            Sql.where select (Sql.andList (toExprs scope))
+
+        Err Nothing ->
+            Sql.where select (Sql.andList [])
 
 makeFilter = \{ name, typeName, options, type, fromValue, toExpr } ->
     optionType = \cmp -> Gql.Input.map type \value -> \expr -> cmp expr (fromValue value)
@@ -58,7 +66,7 @@ makeFilter = \{ name, typeName, options, type, fromValue, toExpr } ->
 
 # Types
 
-string : Str, (scope -> Sql.Expr PgText *) -> Field scope
+string : Str, (scope -> Sql.Expr (PgText {}) *) -> Field scope
 string = \name, toExpr ->
     contains = \haystack, needle ->
         pattern =
@@ -95,7 +103,7 @@ string = \name, toExpr ->
         toExpr,
     }
 
-int : Str, (scope -> Sql.Expr PgI32 *) -> Field scope
+int : Str, (scope -> Sql.Expr (PgI32 {}) *) -> Field scope
 int = \name, toExpr ->
     makeFilter {
         name,
@@ -112,4 +120,3 @@ int = \name, toExpr ->
         fromValue: Sql.i32,
         toExpr,
     }
-

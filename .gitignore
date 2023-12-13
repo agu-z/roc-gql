@@ -2,7 +2,7 @@ src/example
 src/scratch*
 
 examples/posts
-examples/pg
+examples/store/store
 
 *.roc-format-failed
 *.roc-format-unstable-*
