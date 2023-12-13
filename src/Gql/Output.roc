@@ -70,7 +70,7 @@ EnumCaseMeta : {
 
 ResolveErr : [
     FieldNotFound Str Str,
-    InputErr Gql.Input.Error,
+    InputErr Str Gql.Input.Error,
     VarNotFound Str,
 ]
 
@@ -80,8 +80,9 @@ resolveErrToStr = \err ->
         FieldNotFound objName fieldName ->
             "Field `\(fieldName)` not found on `\(objName)`"
 
-        InputErr inputErr ->
-            Gql.Input.errToStr inputErr
+        InputErr fieldName inputErr ->
+            # TODO: Show object name
+            "On `\(fieldName)`: \(Gql.Input.errToStr inputErr)"
 
         VarNotFound varName ->
             "Variable \(varName) not found"
@@ -240,7 +241,7 @@ field = \name, returns, { takes, resolve } -> @Field {
         resolve: \obj, args, selection, opCtx ->
             args
             |> Gql.Input.decode takes
-            |> Result.mapErr InputErr
+            |> Result.mapErr \err -> InputErr name err
             |> Result.try \input ->
                 returns.resolve (resolve obj input) selection opCtx,
     }
