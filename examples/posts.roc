@@ -129,7 +129,8 @@ handleReq = \req ->
                 |> Decode.fromBytes Core.json
                 |> Result.mapErr JsonErr
                 |> Result.try \json ->
-                    Gql.Parse.parseDocument json.query
+                    json.query
+                    |> Gql.Parse.parseDocument
                     |> Result.mapErr ParseErr
                 |> Result.try \document ->
                     Gql.Schema.execute {
@@ -175,8 +176,14 @@ main = \req ->
             |> Gql.Output.resolveErrToStr
             |> respondWithError 400
 
-        Err _ ->
-            respondWithError "Something went wrong" 500
+        Err (ParseErr err) ->
+            err
+            |> Gql.Parse.errToStr
+            |> respondWithError 400
+
+        Err (JsonErr _) ->
+            "Failed to parse body JSON"
+            |> respondWithError 400
 
 respondWithError : Str, U16 -> Task Response []
 respondWithError = \msg, status ->
