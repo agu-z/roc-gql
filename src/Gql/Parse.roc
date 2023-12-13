@@ -60,8 +60,10 @@ errToStr = \err ->
 
 document : Parser RawStr Document
 document =
-    definition
-    |> sepBy1 ignored
+    const identity
+    |> skip ignored
+    |> keep (definition |> sepBy1 ignored)
+    |> skip ignored
 
 expect
     parseStr
@@ -158,6 +160,17 @@ expect
                     },
                 ],
             ],
+        },
+    ]
+
+expect
+    parseStr document " \nquery { user } \t  "
+    == Ok [
+        Operation {
+            type: Query,
+            name: Err Nothing,
+            variables: [],
+            selectionSet: [testField "user"],
         },
     ]
 
