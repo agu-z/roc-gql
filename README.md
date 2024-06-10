@@ -1,6 +1,14 @@
 # roc-gql
 
-[WIP] GraphQL in Roc experiment. Far from spec-compliant.
+GraphQL in Roc experiment
+
+## ⚠️ Archived
+
+I’ve always appreciated the type-safety provided by GraphQL, but its query flexibility can be a double-edged sword. Over my 5+ years of professional experience with GraphQL, I have seen backends balloon in complexity as they try to get data fetching and authorization right. It's just really hard to reason about this when the client could request anything.
+
+If I were starting a new app, I'd avoid SPAs altogether and go with something simpler like [htmx](https://htmx.org) and a REST API. I'm also interested in exploring [gRPC](https://grpc.io) and what a Roc server could look like.
+
+Given these considerations, I have decided to stop pursuing this idea.
 
 ## Example
 
