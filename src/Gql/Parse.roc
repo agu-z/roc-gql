@@ -35,6 +35,7 @@ interface Gql.Parse
             NamedOrListType,
             Selection,
             Argument,
+            Directive,
             Value,
         },
     ]
@@ -125,8 +126,8 @@ expect
             type: Query,
             name: Ok "Posts",
             variables: [
-                { name: "active", type: NonNull (Named "Boolean"), default: Err Nothing },
-                { name: "after", type: Nullable (Named "Date"), default: Err Nothing },
+                { name: "active", type: NonNull (Named "Boolean"), default: Err Nothing, directives: [] },
+                { name: "after", type: Nullable (Named "Date"), default: Err Nothing, directives: [] },
             ],
             selectionSet: [
                 testField "posts"
@@ -227,6 +228,7 @@ expect
                         name: "id",
                         type: NonNull (Named "ID"),
                         default: Err Nothing,
+                        directives: [],
                     },
                 ],
                 selectionSet: [
@@ -285,7 +287,7 @@ variableDefinitions =
 
 variableDefinition : Parser RawStr VariableDefinition
 variableDefinition =
-    const \vname -> \typ -> \dv -> { name: vname, type: typ, default: dv }
+    const \vname -> \vtype -> \vdefault -> \vdirectives -> { name: vname, type: vtype, default: vdefault, directives: vdirectives }
     |> keep variable
     |> skip ignored
     |> skip (codeunit ':')
@@ -293,6 +295,7 @@ variableDefinition =
     |> keep type
     |> skip ignored
     |> keep (maybe defaultValue)
+    |> keep (maybe directives |> withDefault [])
 
 expect
     parseStr variableDefinition "$id: ID"
@@ -300,6 +303,7 @@ expect
         name: "id",
         type: Nullable (Named "ID"),
         default: Err Nothing,
+        directives: [],
     }
 expect
     parseStr variableDefinition "$active: Boolean! = true"
@@ -307,6 +311,7 @@ expect
         name: "active",
         type: NonNull (Named "Boolean"),
         default: Ok (Boolean Bool.true),
+        directives: [],
     }
 expect
     parseStr variableDefinition "$ids :[ID!]= [\"1\", \"2\"]"
@@ -314,6 +319,7 @@ expect
         name: "ids",
         type: Nullable (ListT (NonNull (Named "ID"))),
         default: Ok (List [String "1", String "2"]),
+        directives: [],
     }
 
 variable : Parser RawStr Str
@@ -583,6 +589,23 @@ argument =
     |> skip (codeunit ':')
     |> skip ignored
     |> keep value
+
+# Directive
+
+directives : Parser RawStr (List Directive)
+directives =
+    const identity
+    |> skip ignored
+    |> keep (directive |> sepBy1 ignored)
+
+directive : Parser RawStr Directive
+directive =
+    const \k -> \v -> (k, v)
+    |> skip (codeunit '@')
+    |> skip ignored
+    |> keep name
+    |> skip ignored
+    |> keep (maybe arguments |> withDefault [])
 
 # Value
 

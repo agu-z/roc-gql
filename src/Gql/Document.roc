@@ -43,8 +43,10 @@ VariableDefinition : {
     name : Str,
     type : Type,
     default : Result Value [Nothing],
-    # TODO: Directives
+    directives : List Directive,
 }
+
+Directive : (Str, List Argument)
 
 Type : [
     Nullable NamedOrListType,
